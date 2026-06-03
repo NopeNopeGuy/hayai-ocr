@@ -108,6 +108,7 @@ If `hayai_ocr` doesn't work, you might also try replacing it with `python -m hay
 - The model always attempts to recognize some text on the image, even if there is none.
   Because it uses a transformer decoder (and therefore has some understanding of the Japanese language),
   it might even "dream up" some realistically looking sentences! This shouldn't be a problem for most use cases.
+- Normalize output for english. 
 
 # Examples
 
@@ -128,6 +129,9 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 | ![](assets/examples/08.png) | くらべられっ子 |
 | ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ |
 | ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ |
+| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ |
+| ![](assets/examples/12.png) |「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」|
+| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ|
 
 # Acknowledgments
 
@@ -135,6 +139,6 @@ This project is a fork of [manga-ocr](https://github.com/kha-white/manga-ocr) by
 
 Training data included:
 - [Manga109-s](http://www.manga109.org/en/download_s.html) dataset
-- [CC-100](https://data.statmt.org/cc-100/) dataset
 - [jawildtext](https://huggingface.co/datasets/llm-jp/jawildtext) dataset
+- [AnimeText](https://huggingface.co/datasets/deepghs/AnimeText) dataset
 - Additional synthetic and cropped manga datasets
