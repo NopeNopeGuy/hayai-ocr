@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from manga_ocr import MangaOcr
+from hayai_ocr import HayaiOcr
 
 TEST_DATA_ROOT = Path(__file__).parent / "data"
 
 
 def test_ocr():
-    mocr = MangaOcr()
+    mocr = HayaiOcr()
 
     expected_results = json.loads((TEST_DATA_ROOT / "expected_results.json").read_text(encoding="utf-8"))
 

@@ -3,13 +3,13 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from manga_ocr import MangaOcr
+from hayai_ocr import HayaiOcr
 
 TEST_DATA_ROOT = Path(__file__).parent / "data"
 
 
 def generate_expected_results():
-    mocr = MangaOcr()
+    mocr = HayaiOcr()
 
     results = []
 
