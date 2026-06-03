@@ -115,18 +115,16 @@ Here are some cherry-picked examples showing the capability of the model.
 
 | image                | Result |
 |----------------------|--------|
-| ![](assets/examples/00.jpg) | 素直にあやまるしか |
-| ![](assets/examples/01.jpg) | 立川で見た〝穴〟の下の巨大な眼は： |
-| ![](assets/examples/02.jpg) | 実戦剣術も一流です |
-| ![](assets/examples/03.jpg) | 第３０話重苦しい闇の奥で静かに呼吸づきながら |
-| ![](assets/examples/04.jpg) | よかったじゃないわよ！何逃げてるのよ！！早くあいつを退治してよ！ |
-| ![](assets/examples/05.jpg) | ぎゃっ |
-| ![](assets/examples/06.jpg) | ピンポーーン |
-| ![](assets/examples/07.jpg) | ＬＩＮＫ！私達７人の力でガノンの塔の結界をやぶります |
-| ![](assets/examples/08.jpg) | ファイアパンチ |
-| ![](assets/examples/09.jpg) | 少し黙っている |
-| ![](assets/examples/10.jpg) | わかるかな〜？ |
-| ![](assets/examples/11.jpg) | 警察にも先生にも町中の人達に！！ |
+| ![](assets/examples/01.png) | 知らない世界で見つけたメージを |
+| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） |
+| ![](assets/examples/03.png) | 建設会社社員行方 |
+| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い |
+| ![](assets/examples/05.png) | パチパチパチパチ |
+| ![](assets/examples/06.png) | バビュン |
+| ![](assets/examples/07.png) | 僕の過去とか未来とか |
+| ![](assets/examples/08.png) | くらべられっ子 |
+| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ |
+| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ |
 
 # Acknowledgments
 
