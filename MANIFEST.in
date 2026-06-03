@@ -1,0 +1,3 @@
+recursive-include hayai_ocr/assets *
+include LICENSE
+include README.md
