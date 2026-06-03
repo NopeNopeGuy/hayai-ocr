@@ -104,8 +104,7 @@ If `hayai_ocr` doesn't work, you might also try replacing it with `python -m hay
 
 - OCR supports multi-line text, but the longer the text, the more likely some errors are to occur.
   If the recognition failed for some part of a longer text, you might try to run it on a smaller portion of the image.
-- The model was trained specifically to handle manga well, but should do a decent job on other types of printed text,
-  such as novels or video games. It probably won't be able to handle handwritten text though.
+- The model was trained specifically to handle manga, visual novel, general anime and handwritten Japanese texts. It should perform well everywhere.
 - The model always attempts to recognize some text on the image, even if there is none.
   Because it uses a transformer decoder (and therefore has some understanding of the Japanese language),
   it might even "dream up" some realistically looking sentences! This shouldn't be a problem for most use cases.
