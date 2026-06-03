@@ -111,7 +111,10 @@ If `hayai_ocr` doesn't work, you might also try replacing it with `python -m hay
 
 # Examples
 
-Here are some cherry-picked examples showing the capability of the model.
+Here are some examples showing the capability of the model. 
+
+Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
+Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
 
 | image                | Result |
 |----------------------|--------|
