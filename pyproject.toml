@@ -29,6 +29,9 @@ dependencies = [
     "pyperclip",
     "torch>=1.0",
     "transformers>=4.45.0",
+    "torchvision",
+    "fugashi",
+    "unidic_lite",
 ]
 
 [project.optional-dependencies]
