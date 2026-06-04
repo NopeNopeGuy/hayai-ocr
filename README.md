@@ -15,6 +15,7 @@ text recognition, robust against various scenarios specific to manga:
 - text overlaid on images
 - wide variety of fonts and font styles
 - low quality images
+- SFX
 
 Unlike many OCR models, Hayai OCR supports recognizing multi-line text in a single forward pass,
 so that text bubbles found in manga can be processed at once, without splitting them into lines.
@@ -117,21 +118,25 @@ Here are some examples showing the capability of the model.
 Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
 Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
 
-| image                | Result |
-|----------------------|--------|
-| ![](assets/examples/01.png) | 知らない世界で見つけたメージを |
-| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） |
-| ![](assets/examples/03.png) | 建設会社社員行方 |
-| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い |
-| ![](assets/examples/05.png) | パチパチパチパチ |
-| ![](assets/examples/06.png) | バビュン |
-| ![](assets/examples/07.png) | 僕の過去とか未来とか |
-| ![](assets/examples/08.png) | くらべられっ子 |
-| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ |
-| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ |
-| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ |
-| ![](assets/examples/12.png) |「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」|
-| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ|
+| image                | hayai-ocr | PaddleOCR-VL For Manga |
+|----------------------|--------| ----------- | 
+| ![](assets/examples/01.png) | 知らない世界で見つけたメージを | 知らない世界で見つけた\n イメージを |
+| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスリラ(Kanadetomosusora) |
+| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行 |
+| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
+| ![](assets/examples/05.png) | パチパチパチパチ | アデアデデアデデアデ |
+| ![](assets/examples/06.png) | バビュン | 川ビュン |
+| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか |
+| ![](assets/examples/08.png) | くらべられっ子 | くらべられっ子 |
+| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった！！ |
+| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! |
+| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Ｅｈ～Ｉ don't really want to～ |
+| ![](assets/examples/12.png) |「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」| 「Sorry for the wait~!Did you wait long?」 |
+| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ| Yamate Area New residential district for foreigners |
+
+## Goals
+
+While PaddleOCR-VL is also very accurate, it is 9x the size of this model and it struggles with SFX. The goal of this model is not to be State of the Art, but rather be usuable and fast at scale.
 
 # Acknowledgments
 
