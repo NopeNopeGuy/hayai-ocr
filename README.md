@@ -120,7 +120,7 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 
 | image                | hayai-ocr | PaddleOCR-VL For Manga |
 |----------------------|--------| ----------- | 
-| ![](assets/examples/01.png) | 知らない世界で見つけたメージを | 知らない世界で見つけた\n イメージを |
+| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
 | ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスリラ(Kanadetomosusora) |
 | ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行 |
 | ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
