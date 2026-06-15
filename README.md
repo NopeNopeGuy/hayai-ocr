@@ -127,11 +127,11 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 | ![](assets/examples/05.png) | パチパチパチパチ | アデアデデアデデアデ |
 | ![](assets/examples/06.png) | バビュン | 川ビュン |
 | ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか |
-| ![](assets/examples/08.png) | くらべられっ子 | くらべられっ子 |
+| ![](assets/examples/08.png) | くらべられっぷ | くらべられっ子 |
 | ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった！！ |
 | ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! |
 | ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Ｅｈ～Ｉ don't really want to～ |
-| ![](assets/examples/12.png) |「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」| 「Sorry for the wait~!Did you wait long?」 |
+| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」| 「Sorry for the wait~!Did you wait long?」 |
 | ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ| Yamate Area New residential district for foreigners |
 
 ## Goals
