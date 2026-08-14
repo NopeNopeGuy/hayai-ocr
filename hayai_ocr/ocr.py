@@ -17,48 +17,6 @@ from transformers import (
 )
 
 
-def quantize_model(model: torch.nn.Module, quant_type: Optional[Union[str, bool]] = "int8") -> torch.nn.Module:
-    """Quantizes the model's Linear layers using torchao (int4/int8) or PyTorch dynamic quantization."""
-    if not quant_type:
-        return model
-
-    quant_str = str(quant_type).lower().strip() if not isinstance(quant_type, bool) else "int8"
-
-    # 1. Try torchao for high-performance int4 and int8 quantization
-    try:
-        from torchao.quantization import (
-            Int4WeightOnlyConfig,
-            Int8DynamicActivationInt8WeightConfig,
-            Int8WeightOnlyConfig,
-            quantize_,
-        )
-
-        if quant_str in ("int4", "4", "nf4"):
-            logger.info("Applying torchao INT4 weight-only quantization...")
-            quantize_(model, Int4WeightOnlyConfig())
-            return model
-        elif quant_str in ("int8_wo", "int8_weight_only"):
-            logger.info("Applying torchao INT8 weight-only quantization...")
-            quantize_(model, Int8WeightOnlyConfig())
-            return model
-        elif quant_str in ("int8", "dynamic", "qint8", "true", "1"):
-            logger.info("Applying torchao INT8 dynamic quantization...")
-            quantize_(model, Int8DynamicActivationInt8WeightConfig())
-            return model
-    except (ImportError, Exception) as e:
-        if quant_str in ("int4", "4", "nf4"):
-            logger.warning(
-                f"torchao is required for int4 quantization but failed ({e}). Falling back to PyTorch int8 dynamic quantization."
-            )
-
-    # 2. Fallback to standard PyTorch dynamic quantization (int8)
-    logger.info("Applying PyTorch dynamic int8 quantization...")
-    dtype = torch.qint8
-    if hasattr(torch.ao, "quantization"):
-        return torch.ao.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=dtype)
-    return torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=dtype)
-
-
 class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin):
     """Custom VisionEncoderDecoderModel that forwards SigLIP2 NaFlex-specific
     tensors (pixel_attention_mask, spatial_shapes) to the encoder (used for legacy v1)."""
@@ -106,12 +64,36 @@ class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin)
         )
 
 
+def apply_torchao_quantization(model: torch.nn.Module, quant_type: Optional[str]) -> None:
+    """Applies in-place quantization via torchao, skipping vision_encoder
+    submodules to avoid degrading the image feature extractor.
+    """
+    if quant_type is None:
+        return
+
+    import torchao
+    from torchao.quantization import Int4WeightOnlyConfig, Int8WeightOnlyConfig
+
+    def _skip_vision_encoder(module: torch.nn.Module, fqn: str) -> bool:
+        """Filter function: returns True for Linear modules that SHOULD be quantized."""
+        return isinstance(module, torch.nn.Linear) and not fqn.startswith("vision_encoder")
+
+    if quant_type == "int4":
+        logger.info("Applying INT4 weight-only quantization via torchao...")
+        torchao.quantize_(model, Int4WeightOnlyConfig(), filter_fn=_skip_vision_encoder)
+    elif quant_type == "int8":
+        logger.info("Applying INT8 weight-only quantization via torchao...")
+        torchao.quantize_(model, Int8WeightOnlyConfig(), filter_fn=_skip_vision_encoder)
+    else:
+        raise ValueError(f"Unsupported quantization type: {quant_type!r}. Use 'int4' or 'int8'.")
+
+
 class HayaiOcr:
     def __init__(
         self,
         pretrained_model_name_or_path: Optional[str] = None,
         force_cpu: bool = False,
-        quantize: Optional[Union[str, bool]] = None,
+        quantize: Optional[str] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_v1: bool = False,
     ):
@@ -145,8 +127,6 @@ class HayaiOcr:
             self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name_or_path)
             self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
             self.model = MangaVisionEncoderDecoderModel.from_pretrained(pretrained_model_name_or_path)
-            if quantize:
-                self.model = quantize_model(self.model, quant_type=quantize)
             self.model.to(self.device)
             self.model.eval()
         else:
@@ -154,13 +134,14 @@ class HayaiOcr:
             self.tokenizer = PreTrainedTokenizerFast.from_pretrained(pretrained_model_name_or_path)
 
             logger.info(f"Loading model on {self.device}...")
-            self.model = AutoModel.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+            self.model = AutoModel.from_pretrained(
+                pretrained_model_name_or_path, trust_remote_code=True
+            )
             self.model.to(self.device)
-
-            if quantize:
-                self.model = quantize_model(self.model, quant_type=quantize)
-
+            apply_torchao_quantization(self.model, quantize)
             self.model.eval()
+
+        self.model = torch.compile(self.model)
 
         example_path = Path(__file__).parent / "assets/example.jpg"
         if example_path.is_file():
