@@ -62,7 +62,7 @@ def run(
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", or a path to a text file.
     :param pretrained_model_name_or_path: Path to a trained model, either local or from Transformers' model hub.
     :param force_cpu: If True, OCR will use CPU even if GPU is available.
-    :param quantize: Optional quantization type: "int4" or "int8".
+    :param quantize: Optional quantization (e.g. "int4", "int8", True).
     :param use_v1: If True, uses the legacy Hayai OCR v1 model (JustANormalTinkerer/hayai-ocr).
     :param verbose: If True, unhides all warnings.
     :param delay_secs: How often to check for new images, in seconds.

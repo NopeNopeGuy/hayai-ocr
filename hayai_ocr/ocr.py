@@ -11,11 +11,52 @@ from transformers import (
     AutoModel,
     AutoProcessor,
     AutoTokenizer,
-    BitsAndBytesConfig,
     GenerationMixin,
     PreTrainedTokenizerFast,
     VisionEncoderDecoderModel,
 )
+
+
+def quantize_model(model: torch.nn.Module, quant_type: Optional[Union[str, bool]] = "int8") -> torch.nn.Module:
+    """Quantizes the model's Linear layers using torchao (int4/int8) or PyTorch dynamic quantization."""
+    if not quant_type:
+        return model
+
+    quant_str = str(quant_type).lower().strip() if not isinstance(quant_type, bool) else "int8"
+
+    # 1. Try torchao for high-performance int4 and int8 quantization
+    try:
+        from torchao.quantization import (
+            Int4WeightOnlyConfig,
+            Int8DynamicActivationInt8WeightConfig,
+            Int8WeightOnlyConfig,
+            quantize_,
+        )
+
+        if quant_str in ("int4", "4", "nf4"):
+            logger.info("Applying torchao INT4 weight-only quantization...")
+            quantize_(model, Int4WeightOnlyConfig())
+            return model
+        elif quant_str in ("int8_wo", "int8_weight_only"):
+            logger.info("Applying torchao INT8 weight-only quantization...")
+            quantize_(model, Int8WeightOnlyConfig())
+            return model
+        elif quant_str in ("int8", "dynamic", "qint8", "true", "1"):
+            logger.info("Applying torchao INT8 dynamic quantization...")
+            quantize_(model, Int8DynamicActivationInt8WeightConfig())
+            return model
+    except (ImportError, Exception) as e:
+        if quant_str in ("int4", "4", "nf4"):
+            logger.warning(
+                f"torchao is required for int4 quantization but failed ({e}). Falling back to PyTorch int8 dynamic quantization."
+            )
+
+    # 2. Fallback to standard PyTorch dynamic quantization (int8)
+    logger.info("Applying PyTorch dynamic int8 quantization...")
+    dtype = torch.qint8
+    if hasattr(torch.ao, "quantization"):
+        return torch.ao.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=dtype)
+    return torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=dtype)
 
 
 class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin):
@@ -65,32 +106,12 @@ class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin)
         )
 
 
-def get_quantization_config(quant_type: Optional[str]) -> Optional[BitsAndBytesConfig]:
-    """Configures quantization via bitsandbytes, skipping vision_encoder
-    to avoid state_dict mismatch errors in custom model loading code.
-    """
-    if quant_type == "int4":
-        return BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            llm_int8_skip_modules=["vision_encoder"],  # Prevents size mismatch in modeling_hayai.py
-        )
-    elif quant_type == "int8":
-        return BitsAndBytesConfig(
-            load_in_8bit=True,
-            llm_int8_skip_modules=["vision_encoder"],  # Prevents size mismatch in modeling_hayai.py
-        )
-    return None
-
-
 class HayaiOcr:
     def __init__(
         self,
         pretrained_model_name_or_path: Optional[str] = None,
         force_cpu: bool = False,
-        quantize: Optional[str] = None,
+        quantize: Optional[Union[str, bool]] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_v1: bool = False,
     ):
@@ -124,27 +145,20 @@ class HayaiOcr:
             self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name_or_path)
             self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
             self.model = MangaVisionEncoderDecoderModel.from_pretrained(pretrained_model_name_or_path)
+            if quantize:
+                self.model = quantize_model(self.model, quant_type=quantize)
             self.model.to(self.device)
             self.model.eval()
         else:
             self.processor = AutoProcessor.from_pretrained("google/siglip2-base-patch16-naflex")
             self.tokenizer = PreTrainedTokenizerFast.from_pretrained(pretrained_model_name_or_path)
 
-            quant_config = get_quantization_config(quantize)
-            model_kwargs = {"trust_remote_code": True}
+            logger.info(f"Loading model on {self.device}...")
+            self.model = AutoModel.from_pretrained(pretrained_model_name_or_path, trust_remote_code=True)
+            self.model.to(self.device)
 
-            if quant_config:
-                logger.info(f"Applying {quantize.upper()} quantization...")
-                model_kwargs["quantization_config"] = quant_config
-                model_kwargs["device_map"] = "auto"
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            else:
-                logger.info(f"Loading model on {self.device}...")
-
-            self.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **model_kwargs)
-
-            if not quant_config:
-                self.model.to(self.device)
+            if quantize:
+                self.model = quantize_model(self.model, quant_type=quantize)
 
             self.model.eval()
 

@@ -65,14 +65,14 @@ texts = mocr(['/path/to/img1.png', '/path/to/img2.png'])
 
 ### Quantization (int4 / int8)
 
-Hayai OCR supports near-lossless `int4` (NF4) and `int8` quantization via `bitsandbytes` to drastically reduce VRAM requirements:
+Hayai OCR supports optimized PyTorch native quantization via `torchao` and PyTorch dynamic quantization to drastically reduce memory usage and speed up inference:
 
 ```python
-# Run with int4 quantization
+# Run with int4 weight-only quantization (via torchao)
 mocr = HayaiOcr(quantize="int4")
 
-# Run with int8 quantization
-mocr = HayaiOcr(quantize="int8")
+# Run with int8 dynamic quantization
+mocr = HayaiOcr(quantize="int8") # or quantize=True
 ```
 
 ### Legacy v1 Model Fallback
