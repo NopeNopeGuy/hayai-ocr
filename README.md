@@ -153,7 +153,7 @@ Here are some examples showing the capability of the model with the new **Hayai 
 Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
 Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
 
-| image | hayai-ocr-v2 | hayai-ocr-v1 | PaddleOCR-VL For Manga |
+| image | hayai-ocr-v1 | hayai-ocr-v2 | PaddleOCR-VL For Manga |
 |---|---|---|---|
 | ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
 | ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスツラ(Kanadetomosusora) | カナデトモスリラ(Kanadetomosusora) |
