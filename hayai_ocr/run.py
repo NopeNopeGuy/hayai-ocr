@@ -47,8 +47,10 @@ def get_path_key(path):
 def run(
     read_from="clipboard",
     write_to="clipboard",
-    pretrained_model_name_or_path="JustANormalTinkerer/hayai-ocr",
+    pretrained_model_name_or_path=None,
     force_cpu=False,
+    quantize=None,
+    use_v1=False,
     delay_secs=0.1,
     verbose=False,
 ):
@@ -60,11 +62,18 @@ def run(
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", or a path to a text file.
     :param pretrained_model_name_or_path: Path to a trained model, either local or from Transformers' model hub.
     :param force_cpu: If True, OCR will use CPU even if GPU is available.
+    :param quantize: Optional quantization type: "int4" or "int8".
+    :param use_v1: If True, uses the legacy Hayai OCR v1 model (JustANormalTinkerer/hayai-ocr).
     :param verbose: If True, unhides all warnings.
     :param delay_secs: How often to check for new images, in seconds.
     """
 
-    mocr = HayaiOcr(pretrained_model_name_or_path, force_cpu)
+    mocr = HayaiOcr(
+        pretrained_model_name_or_path=pretrained_model_name_or_path,
+        force_cpu=force_cpu,
+        quantize=quantize,
+        use_v1=use_v1,
+    )
 
     if sys.platform not in ("darwin", "win32") and write_to == "clipboard":
         # Check if the system is using Wayland

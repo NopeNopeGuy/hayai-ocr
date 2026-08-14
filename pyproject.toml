@@ -30,6 +30,8 @@ dependencies = [
     "torch>=1.0",
     "transformers>=4.45.0",
     "torchvision",
+    "accelerate",
+    "bitsandbytes",
     "fugashi",
     "unidic_lite",
 ]

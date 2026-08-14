@@ -1,15 +1,14 @@
 # Hayai OCR (速いOCR)
 
-Fast optical character recognition for Japanese text, with the main focus being Japanese manga.
-A fork of [manga-ocr](https://github.com/kha-white/manga-ocr) by kha-white, rebuilt with a
-SigLIP2 + BERT encoder-decoder architecture for improved accuracy and speed.
+Fast optical character recognition for Japanese, Chinese, and Korean text, with the main focus being Japanese manga.
+Powered by the new **Hayai OCR v2** model ([JustANormalTinkerer/hayai-ocr-v2](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2)), pairing a [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a high-performance transformer architecture.
 
-It uses a custom end-to-end model built with Transformers' [Vision Encoder Decoder](https://huggingface.co/docs/transformers/model_doc/vision-encoder-decoder) framework,
-pairing a [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a
-[Japanese BERT](https://huggingface.co/tohoku-nlp/bert-base-japanese-char-v3) character-level decoder.
+Hayai OCR v2 is **MUCH faster** while also adding multi-language support for **Chinese** (Simplified and Traditional) and **Korean** alongside Japanese.
 
-Hayai OCR can be used as a general purpose printed Japanese OCR, but its main goal is to provide high quality
-text recognition, robust against various scenarios specific to manga:
+> [!NOTE]
+> **English Support Notice:** Please note that **Hayai OCR v2 is NOT finetuned for English... yet**. In the future, **Hayai OCR v2.1** will be MUCH better at recognizing English text.
+
+Hayai OCR can be used as a general purpose printed Asian language OCR, but its main goal is to provide high quality text recognition, robust against various scenarios specific to manga:
 - both vertical and horizontal text
 - text with furigana
 - text overlaid on images
@@ -17,8 +16,7 @@ text recognition, robust against various scenarios specific to manga:
 - low quality images
 - SFX
 
-Unlike many OCR models, Hayai OCR supports recognizing multi-line text in a single forward pass,
-so that text bubbles found in manga can be processed at once, without splitting them into lines.
+Unlike many OCR models, Hayai OCR supports recognizing multi-line text in a single forward pass, so that text bubbles found in manga can be processed at once, without splitting them into lines.
 
 See also:
 - [Poricom](https://github.com/bluaxees/Poricom), a GUI reader
@@ -48,7 +46,7 @@ mocr = HayaiOcr()
 text = mocr('/path/to/img')
 ```
 
-or
+or with PIL:
 
 ```python
 import PIL.Image
@@ -57,6 +55,33 @@ from hayai_ocr import HayaiOcr
 mocr = HayaiOcr()
 img = PIL.Image.open('/path/to/img')
 text = mocr(img)
+```
+
+Batch processing is also supported:
+
+```python
+texts = mocr(['/path/to/img1.png', '/path/to/img2.png'])
+```
+
+### Quantization (int4 / int8)
+
+Hayai OCR supports near-lossless `int4` (NF4) and `int8` quantization via `bitsandbytes` to drastically reduce VRAM requirements:
+
+```python
+# Run with int4 quantization
+mocr = HayaiOcr(quantize="int4")
+
+# Run with int8 quantization
+mocr = HayaiOcr(quantize="int8")
+```
+
+### Legacy v1 Model Fallback
+
+If you need to use the legacy Hayai OCR v1 model (`JustANormalTinkerer/hayai-ocr`), you can set `use_v1=True` or supply the v1 model repository:
+
+```python
+# Use the legacy v1 model
+mocr = HayaiOcr(use_v1=True)
 ```
 
 > **Note:** The backwards-compatible `MangaOcr` alias is still available:
@@ -75,13 +100,21 @@ from which it can be read by a dictionary like [Yomitan](https://github.com/yomi
 
 Clipboard mode on Linux requires `wl-copy` for Wayland sessions or `xclip` for X11 sessions. You can find out which one your system needs by running `echo $XDG_SESSION_TYPE` in the terminal.
 
-Your full setup for reading manga in Japanese with a dictionary might look like this:
+Your full setup for reading manga with a dictionary might look like this:
 
 capture region with ShareX -> write image to clipboard -> Hayai OCR -> write text to clipboard -> Yomitan
 
 - To read images from clipboard and write recognized texts to clipboard, run in command line:
     ```commandline
     hayai_ocr
+    ```
+- To run with quantization in CLI:
+    ```commandline
+    hayai_ocr --quantize int4
+    ```
+- To run with the legacy v1 model:
+    ```commandline
+    hayai_ocr --use-v1
     ```
 - To read images from ShareX's screenshot folder, run in command line:
     ```commandline
@@ -105,34 +138,38 @@ If `hayai_ocr` doesn't work, you might also try replacing it with `python -m hay
 
 - OCR supports multi-line text, but the longer the text, the more likely some errors are to occur.
   If the recognition failed for some part of a longer text, you might try to run it on a smaller portion of the image.
-- The model was trained specifically to handle manga, visual novel, general anime and handwritten Japanese texts. It should perform well everywhere.
+- The model was trained to handle manga, visual novels, anime graphics, and handwritten texts across Japanese, Chinese, and Korean.
 - The model always attempts to recognize some text on the image, even if there is none.
-  Because it uses a transformer decoder (and therefore has some understanding of the Japanese language),
-  it might even "dream up" some realistically looking sentences! This shouldn't be a problem for most use cases.
-- Normalize output for english. 
+  Because it uses a transformer decoder (and therefore has some language model understanding),
+  it might even "dream up" realistically looking sentences! This shouldn't be a problem for most use cases.
 
 # Examples
 
-Here are some examples showing the capability of the model. 
+Here are some examples showing the capability of the model with the new **Hayai OCR v2**: 
 
 Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
 Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
 
-| image                | hayai-ocr | PaddleOCR-VL For Manga |
-|----------------------|--------| ----------- | 
-| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
-| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスリラ(Kanadetomosusora) |
-| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行 |
-| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
-| ![](assets/examples/05.png) | パチパチパチパチ | アデアデデアデデアデ |
-| ![](assets/examples/06.png) | バビュン | 川ビュン |
-| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか |
-| ![](assets/examples/08.png) | くらべられっ子 | くらべられっ子 |
-| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった！！ |
-| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! |
-| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Ｅｈ～Ｉ don't really want to～ |
-| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」| 「Sorry for the wait~!Did you wait long?」 |
-| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ| Yamate Area New residential district for foreigners |
+| image | hayai-ocr-v2 | hayai-ocr-v1 | PaddleOCR-VL For Manga |
+|---|---|---|---|
+| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
+| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスツラ(Kanadetomosusora) | カナデトモスリラ(Kanadetomosusora) |
+| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行才 | 建設会社社員行 |
+| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
+| ![](assets/examples/05.png) | パチパチパチパチ | パチパチパチパチパチパチ | アデアデデアデデアデ |
+| ![](assets/examples/06.png) | バビュン | バビュン | 川ビュン |
+| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか |
+| ![](assets/examples/08.png) | くらべられっ子 | らぺろれっ子 | くらべられっ子 |
+| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった!! | そうだクラス分けがあるんだった！！ |
+| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! |
+| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Eh~I don't really want to~ | Ｅｈ～Ｉ don't really want to～ |
+| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」 | 「Sorry for thewait~!DidyouwaitLong?」 | 「Sorry for the wait~!Did you wait long?」 |
+| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ | Yamate AreaNew residental district forforeignert | Yamate Area New residential district for foreigners |
+
+
+## Benchmarks:
+
+
 
 ## Goals
 
