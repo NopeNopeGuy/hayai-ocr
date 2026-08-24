@@ -5,9 +5,6 @@ Powered by the new **Hayai OCR v2** model ([JustANormalTinkerer/hayai-ocr-v2](ht
 
 Hayai OCR v2 is **MUCH faster** while also adding multi-language support for **Chinese** (Simplified and Traditional) and **Korean** alongside Japanese.
 
-> [!NOTE]
-> **English Support Notice:** Please note that **Hayai OCR v2 is NOT finetuned for English... yet**. In the future, **Hayai OCR v2.1** will be MUCH better at recognizing English text.
-
 Hayai OCR can be used as a general purpose printed Asian language OCR, but its main goal is to provide high quality text recognition, robust against various scenarios specific to manga:
 - both vertical and horizontal text
 - text with furigana
