@@ -175,16 +175,17 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 
 #### [JMangaBench_Mixed](https://github.com/muscgab/JMangaBench_Mixed/)
 
-| Model | CER ↓ | Exact match ↑ | Text-only CER ↓ | Text-only exact match ↑ |
+| Model | CER ↓ (Lower is Better)| Exact match ↑ (Higher is better) | Text-only CER ↓ | Text-only exact match ↑ |
 |---|---:|---:|---:|---:|
 | MangaOCR | 4.683% | 73.524% | 2.700% | 82.867% |
 | HayaiOCR | 6.738% | 71.272% | 4.967% | 80.949% |
 | HayaiOCR-v2 | 4.534% | 73.645% | 2.872% | 82.227% |
+| HayaiOCR-v2.1 | 3.225% | 79.671% | 1.896% | 87.461% | 
 | BaberuOCR | 4.589% | 72.246% | 2.603% | 81.649% |
 | PaddleOCR-VL-0.9B-For-Manga | 2.910% | 78.911% | 1.866% | 84.662% |
 
 > [!NOTE]
-> JMangaBench in my opinion, is flawed. Especially if you include Manga109-s in the benchmark. The accuracy results are inflated because every single model above has already been trained on the same set of the dataset, as such it is impossible to take the results at face value. The benchmarks below are more realistic, as they are run on dataset splits that the models have never seen before.
+> The previous version of this readme contained a note stating that the benchmark was bad, however, upon further examination, I believe it holds up.
 
 #### [My finetuning Dataset Train Split: Chinese + Japanese/Korean Onomatopoeia + Some English](JustANormalTinkerer/hayai-finetuning-dataset)
 
