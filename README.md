@@ -153,21 +153,21 @@ Here are some examples showing the capability of the model with the new **Hayai 
 Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
 Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
 
-| image | hayai-ocr-v1 | hayai-ocr-v2 | PaddleOCR-VL For Manga |
-|---|---|---|---|
-| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
-| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスツラ(Kanadetomosusora) | カナデトモスリラ(Kanadetomosusora) |
-| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行才 | 建設会社社員行 |
-| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
-| ![](assets/examples/05.png) | パチパチパチパチ | パチパチパチパチパチパチ | アデアデデアデデアデ |
-| ![](assets/examples/06.png) | バビュン | バビュン | 川ビュン |
-| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか |
-| ![](assets/examples/08.png) | くらべられっ子 | らぺろれっ子 | くらべられっ子 |
-| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった!! | そうだクラス分けがあるんだった！！ |
-| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! |
-| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Eh~I don't really want to~ | Ｅｈ～Ｉ don't really want to～ |
-| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」 | 「Sorry for thewait~!DidyouwaitLong?」 | 「Sorry for the wait~!Did you wait long?」 |
-| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ | Yamate AreaNew residental district forforeignert | Yamate Area New residential district for foreigners |
+| image | hayai-ocr-v1 | hayai-ocr-v2 | hayai-ocr-v2.1 | PaddleOCR-VL For Manga |
+|---|---|---|---|---|
+| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
+| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスツラ(Kanadetomosusora) | カナデトモスソラ(Kanadetomosusura) | カナデトモスリラ(Kanadetomosusora) |
+| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行才 | 建設会社社員行方 | 建設会社社員行 |
+| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
+| ![](assets/examples/05.png) | パチパチパチパチ | パチパチパチパチパチパチ | パチパチパチパチ | アデアデデアデデアデ |
+| ![](assets/examples/06.png) | バビュン | バビュン | バビュン | 川ビュン |
+| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか |
+| ![](assets/examples/08.png) | くらべられっ子 | らぺろれっ子 | くらべられっ子 | くらべられっ子 |
+| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった!! | そうだクラス分けがあるんだ!! | そうだクラス分けがあるんだった！！ |
+| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! |
+| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Eh~I don't really want to~ | Eh~ I don't really want to~ | Ｅｈ～Ｉ don't really want to～ |
+| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」 | 「Sorry for thewait~!DidyouwaitLong?」 | 「Sorry for the wait~! Did you wait Long?」 | 「Sorry for the wait~!Did you wait long?」 |
+| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ | Yamate AreaNew residental district forforeignert | Yamate Area New residential district for foreigners | Yamate Area New residential district for foreigners |
 
 
 ## Benchmarks:
@@ -200,7 +200,10 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 | Model Name | Mean CER | Throughput on L4 GPU (FPS) |
 | :--- | ---: | ---: |
 | Hayai OCR v2 | 10.56% | 31.95 |
+| Hayai OCR v2.1 | 12.94% | 54.22* |
 | PaddleOCR-VL-For-Manga | 38.69% | 2.22 |
+
+*No idea how the throughput increased so much
 
 ## Goals
 
