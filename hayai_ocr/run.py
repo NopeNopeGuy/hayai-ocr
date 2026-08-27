@@ -51,6 +51,11 @@ def run(
     force_cpu=False,
     quantize=None,
     use_v1=False,
+    backend="torch",
+    litert_quant=None,
+    litert_model_path=None,
+    litert_repo=None,
+    litert_threads=None,
     delay_secs=0.1,
     verbose=False,
 ):
@@ -64,6 +69,12 @@ def run(
     :param force_cpu: If True, OCR will use CPU even if GPU is available.
     :param quantize: Optional quantization type: "int4" or "int8".
     :param use_v1: If True, uses the legacy Hayai OCR v1 model (JustANormalTinkerer/hayai-ocr).
+    :param backend: Inference backend: "torch" (default) or "litert" / "tflite".
+    :param litert_quant: LiteRT quantization preset: "none", "wi4", "wi8_afp32", "dynamic_wi4", "dynamic_wi8"
+        (aliases: "int4", "int8", "float" etc). Default "wi4".
+    :param litert_model_path: Local path to LiteRT quant folder (or litert_exports root).
+    :param litert_repo: HF repo id for LiteRT artefacts (default JustANormalTinkerer/hayai-ocr-v2-tflite).
+    :param litert_threads: Num threads for LiteRT interpreters.
     :param verbose: If True, unhides all warnings.
     :param delay_secs: How often to check for new images, in seconds.
     """
@@ -73,6 +84,11 @@ def run(
         force_cpu=force_cpu,
         quantize=quantize,
         use_v1=use_v1,
+        backend=backend,
+        litert_quant=litert_quant,
+        litert_model_path=litert_model_path,
+        litert_repo=litert_repo,
+        litert_threads=litert_threads,
     )
 
     if sys.platform not in ("darwin", "win32") and write_to == "clipboard":

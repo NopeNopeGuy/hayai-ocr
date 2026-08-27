@@ -40,6 +40,20 @@ dev = [
     "pytest",
     "ruff",
 ]
+litert = [
+    "ai-edge-litert",
+    "tokenizers",
+    "huggingface_hub",
+    "numpy",
+    "Pillow>=10.0.0",
+]
+tflite = [
+    "ai-edge-litert",
+    "tokenizers",
+    "huggingface_hub",
+    "numpy",
+    "Pillow>=10.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/NopeNopeGuy/hayai-ocr"

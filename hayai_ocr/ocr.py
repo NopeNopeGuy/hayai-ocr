@@ -16,6 +16,17 @@ from transformers import (
     VisionEncoderDecoderModel,
 )
 
+try:
+    from hayai_ocr.litert import (
+        LitertOcrEngine,
+        normalize_litert_quant,
+        DEFAULT_HF_REPO as _LITERT_DEFAULT_REPO,
+    )
+except Exception:  # pragma: no cover - optional deps missing
+    LitertOcrEngine = None  # type: ignore
+    normalize_litert_quant = None  # type: ignore
+    _LITERT_DEFAULT_REPO = "JustANormalTinkerer/hayai-ocr-v2-tflite"
+
 
 class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin):
     """Custom VisionEncoderDecoderModel that forwards SigLIP2 NaFlex-specific
@@ -96,7 +107,94 @@ class HayaiOcr:
         quantize: Optional[str] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_v1: bool = False,
+        backend: str = "torch",
+        litert_quant: Optional[str] = None,
+        litert_model_path: Optional[str] = None,
+        litert_repo: Optional[str] = None,
+        litert_threads: Optional[int] = None,
     ):
+        """
+        :param pretrained_model_name_or_path: HF repo or local path for torch backend.
+            For litert backend, if provided and points to a local directory containing
+            tflite files, it acts as ``litert_model_path``.
+        :param force_cpu: force CPU even if GPU available (torch backend).
+        :param quantize: torch weight-only quant: "int4" / "int8".
+        :param device: torch device override.
+        :param use_v1: use legacy v1 model.
+        :param backend: inference backend — "torch" (default) or "litert" / "tflite".
+        :param litert_quant: LiteRT quantization preset: "none"/"wi4"/"wi8_afp32"/
+            "dynamic_wi4"/"dynamic_wi8" plus aliases "int4","int8","float" etc.
+            Ignored for torch backend.
+        :param litert_model_path: local path to LiteRT quant folder (or litert_exports root).
+            If None, auto-downloads from HF.
+        :param litert_repo: HF repo id hosting litert_exports (default JustANormalTinkerer/hayai-ocr-v2-tflite).
+        :param litert_threads: num threads for LiteRT interpreters.
+        """
+        backend_norm = backend.strip().lower() if isinstance(backend, str) else "torch"
+        if backend_norm in ("tflite", "lite_rt", "litert"):
+            backend_norm = "litert"
+        if backend_norm not in ("torch", "litert"):
+            raise ValueError(f"Unknown backend {backend!r}. Use 'torch' or 'litert'.")
+        self.backend = backend_norm
+        self.is_litert = self.backend == "litert"
+
+        if self.is_litert:
+            if use_v1:
+                raise ValueError("LiteRT backend only supports Hayai OCR v2 (use_v1 must be False).")
+            if quantize is not None:
+                logger.warning("quantize is for torch backend; did you mean litert_quant? Ignoring quantize for litert.")
+            _quant = litert_quant if litert_quant is not None else "wi4"
+            if normalize_litert_quant is not None:
+                _quant_canon = normalize_litert_quant(_quant)
+            else:
+                _quant_canon = _quant
+            self.litert_quant = _quant_canon
+            self.litert_repo = litert_repo or _LITERT_DEFAULT_REPO
+            _litert_path = litert_model_path
+            if _litert_path is None and pretrained_model_name_or_path is not None:
+                p = Path(pretrained_model_name_or_path)
+                if p.exists():
+                    _litert_path = pretrained_model_name_or_path
+                    logger.info(f"Using pretrained_model_name_or_path as litert_model_path: {p}")
+                elif "/" not in pretrained_model_name_or_path and pretrained_model_name_or_path in (
+                    "none",
+                    "wi4",
+                    "wi8_afp32",
+                    "dynamic_wi4",
+                    "dynamic_wi8",
+                    "int4",
+                    "int8",
+                    "float",
+                ):
+                    self.litert_quant = normalize_litert_quant(pretrained_model_name_or_path)  # type: ignore
+                    _litert_path = None
+            self.litert_model_path = _litert_path
+            self.pretrained_model_name_or_path = litert_model_path or pretrained_model_name_or_path or self.litert_repo
+            self.is_v1 = False
+            if LitertOcrEngine is None:
+                raise ImportError(
+                    "LiteRT backend requires optional dependencies `ai_edge_litert`, `tokenizers`, `huggingface_hub`. "
+                    "Install with `pip install hayai-ocr[litert]` or `pip install ai-edge-litert tokenizers huggingface_hub`."
+                )
+            logger.info(f"Loading OCR model (mode: v2 litert, quant={self.litert_quant}) from {self.pretrained_model_name_or_path}")
+            self.device = "cpu"
+            self.processor = None  # type: ignore
+            self.tokenizer = None  # type: ignore
+            self.litert_engine = LitertOcrEngine(
+                quant=self.litert_quant,
+                model_dir=self.litert_model_path,
+                hf_repo=self.litert_repo,
+                num_threads=litert_threads,
+            )
+            self.model = self.litert_engine  # type: ignore
+            example_path = Path(__file__).parent / "assets/example.jpg"
+            if example_path.is_file():
+                try:
+                    self(example_path)
+                except Exception as e:
+                    logger.warning(f"LiteRT warmup failed: {e}")
+            logger.info("OCR ready (litert)")
+            return
         if use_v1 and pretrained_model_name_or_path is None:
             pretrained_model_name_or_path = "JustANormalTinkerer/hayai-ocr"
         elif pretrained_model_name_or_path is None:
@@ -187,6 +285,9 @@ class HayaiOcr:
         max_new_tokens: int = 128,
         repetition_penalty: float = 1.00,
     ) -> List[str]:
+        if getattr(self, "is_litert", False):
+            mt = min(max_new_tokens, 64) if max_new_tokens > 64 else max_new_tokens
+            return self.litert_engine.generate_batch(pil_images, max_new_tokens=mt, repetition_penalty=repetition_penalty)
         if self.is_v1:
             results = []
             for img in pil_images:
@@ -222,6 +323,19 @@ class HayaiOcr:
             return generated_texts
 
     def _preprocess(self, img):
+        if getattr(self, "is_litert", False):
+            from hayai_ocr.litert import preprocess_image_pil, compute_pos_embeds, compute_rope
+
+            if isinstance(img, (list, tuple)):
+                img = img[0]
+            if isinstance(img, (str, Path)):
+                img = Image.open(img).convert("RGB")
+            elif isinstance(img, Image.Image):
+                img = img.convert("RGB")
+            pv, mask, (ph, pw) = preprocess_image_pil(img)  # type: ignore
+            pos = compute_pos_embeds(self.litert_engine.position_base, ph, pw)  # type: ignore
+            cos, sin = compute_rope(ph, pw)  # type: ignore
+            return {"pixel_values": pv, "attention_mask": mask, "pos_embeds": pos, "cos": cos, "sin": sin}
         if self.is_v1:
             if isinstance(img, (list, tuple)):
                 img = img[0]
