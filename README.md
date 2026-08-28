@@ -75,6 +75,27 @@ mocr = HayaiOcr(quantize="int4")
 mocr = HayaiOcr(quantize="int8")
 ```
 
+### LiteRT backend (no PyTorch required)
+
+Alternative backend that runs exported TFLite graphs (encoder + prefill/decode with KV-cache) via `ai_edge_litert` — ideal for CPU / edge without PyTorch. Artefacts: [JustANormalTinkerer/hayai-ocr-v2-tflite](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2-tflite) (`litert_exports/{none,wi4,wi8_afp32,dynamic_wi4,dynamic_wi8}`).
+
+```bash
+pip install hayai-ocr[litert]  # installs ai_edge_litert, tokenizers, huggingface_hub
+```
+
+```python
+from hayai_ocr import HayaiOcr
+
+mocr = HayaiOcr(backend="litert")  # default: wi4 (int4)
+mocr = HayaiOcr(backend="litert", litert_quant="dynamic_wi4")  # dynamic int4
+mocr = HayaiOcr(backend="litert", litert_quant="float")  # fp32
+# local exports: HayaiOcr(backend="litert", litert_model_path="/path/to/litert_exports/dynamic_wi4")
+```
+
+Quants: `none`/`float`, `wi4`/`int4`, `wi8_afp32`/`int8`, `dynamic_wi4`/`dynamic_int4`, `dynamic_wi8`/`dynamic_int8`. Override HF repo with `litert_repo`.
+
+CLI: `hayai_ocr --backend litert --litert-quant dynamic_wi4`
+
 ### Legacy v1 Model Fallback
 
 If you need to use the legacy Hayai OCR v1 model (`JustANormalTinkerer/hayai-ocr`), you can set `use_v1=True` or supply the v1 model repository:
@@ -177,7 +198,8 @@ Some images (especially the youtube ones) weren't even in the scope of this proj
 | MangaOCR | 4.683% | 73.524% | 2.700% | 82.867% |
 | HayaiOCR | 6.738% | 71.272% | 4.967% | 80.949% |
 | HayaiOCR-v2 | 4.534% | 73.645% | 2.872% | 82.227% |
-| HayaiOCR-v2.1 | 3.225% | 79.671% | 1.896% | 87.461% | 
+| **HayaiOCR-v2.1** | **3.225%** | **79.671%** | **1.896%** | **87.461%** |
+| **HayaiOCR-v2.1 (LiteRT dynamic int4)** | 3.959% | 75.533% | 2.560% | 83.414% |
 | BaberuOCR | 4.589% | 72.246% | 2.603% | 81.649% |
 | PaddleOCR-VL-0.9B-For-Manga | 2.910% | 78.911% | 1.866% | 84.662% |
 
