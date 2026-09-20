@@ -56,6 +56,7 @@ def run(
     litert_model_path=None,
     litert_repo=None,
     litert_threads=None,
+    max_num_patches=None,
     delay_secs=0.1,
     verbose=False,
 ):
@@ -75,6 +76,9 @@ def run(
     :param litert_model_path: Local path to LiteRT quant folder (or litert_exports root).
     :param litert_repo: HF repo id for LiteRT artefacts (default JustANormalTinkerer/hayai-ocr-v2-tflite).
     :param litert_threads: Num threads for LiteRT interpreters.
+    :param max_num_patches: NaFlex patch budget for the torch v2 backend (default 256).
+        Larger values keep more detail at higher compute cost; smaller values are faster.
+        Ignored for v1; unsupported for litert. Also settable via HAYAI_MAX_NUM_PATCHES.
     :param verbose: If True, unhides all warnings.
     :param delay_secs: How often to check for new images, in seconds.
     """
@@ -89,6 +93,7 @@ def run(
         litert_model_path=litert_model_path,
         litert_repo=litert_repo,
         litert_threads=litert_threads,
+        max_num_patches=max_num_patches,
     )
 
     if sys.platform not in ("darwin", "win32") and write_to == "clipboard":
