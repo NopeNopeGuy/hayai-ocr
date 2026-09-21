@@ -1,7 +1,8 @@
 # Hayai OCR (速いOCR)
 
 Fast optical character recognition for Japanese, Chinese, and Korean text, with the main focus being Japanese manga.
-Powered by the new **Hayai OCR v2** model ([JustANormalTinkerer/hayai-ocr-v2](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2)), pairing a [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a high-performance transformer architecture.
+Powered by the new **Hayai OCR v2.5-nova** model ([JustANormalTinkerer/hayai-ocr-v2.5-nova](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2.5-nova)), pairing a [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a high-performance transformer architecture.
+The previous v2 checkpoint ([JustANormalTinkerer/hayai-ocr-v2](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2)) is still available via `use_v2=True` / `--use-v2`.
 
 Hayai OCR v2 is **MUCH faster** while also adding multi-language support for **Chinese** (Simplified and Traditional) and **Korean** alongside Japanese.
 
@@ -99,7 +100,14 @@ Quants: `none`/`float`, `wi4`/`int4`, `wi8_afp32`/`int8`, `dynamic_wi4`/`dynamic
 
 CLI: `hayai_ocr --backend litert --litert-quant dynamic_wi4`
 
-### Legacy v1 Model Fallback
+### Previous v2 / Legacy v1 Model Fallback
+
+If you need to use the previous Hayai OCR v2 model (`JustANormalTinkerer/hayai-ocr-v2`) instead of the default v2.5-nova checkpoint, you can set `use_v2=True`:
+
+```python
+# Use the previous v2 model
+mocr = HayaiOcr(use_v2=True)
+```
 
 If you need to use the legacy Hayai OCR v1 model (`JustANormalTinkerer/hayai-ocr`), you can set `use_v1=True` or supply the v1 model repository:
 
@@ -135,6 +143,10 @@ capture region with ShareX -> write image to clipboard -> Hayai OCR -> write tex
 - To run with quantization in CLI:
     ```commandline
     hayai_ocr --quantize int4
+    ```
+- To run with the previous v2 model:
+    ```commandline
+    hayai_ocr --use-v2
     ```
 - To run with the legacy v1 model:
     ```commandline

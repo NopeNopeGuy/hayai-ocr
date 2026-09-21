@@ -29,6 +29,23 @@ except Exception:  # pragma: no cover - optional deps missing
     _LITERT_DEFAULT_REPO = "JustANormalTinkerer/hayai-ocr-v2-tflite"
 
 
+V1_REPO = "JustANormalTinkerer/hayai-ocr"
+V2_REPO = "JustANormalTinkerer/hayai-ocr-v2"
+V25_NOVA_REPO = "JustANormalTinkerer/hayai-ocr-v2.5-nova"
+DEFAULT_REPO = V25_NOVA_REPO
+
+DEFAULT_MAX_NUM_PATCHES = 256
+NOVA_DEFAULT_MAX_NUM_PATCHES = 512
+
+
+def _is_nova_repo(repo: Optional[str]) -> bool:
+    """Return True if ``repo`` refers to the v2.5-nova checkpoint family."""
+    if not repo:
+        return False
+    lowered = repo.lower()
+    return repo == V25_NOVA_REPO or "v2.5-nova" in lowered or "nova" in lowered
+
+
 class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin):
     """Custom VisionEncoderDecoderModel that forwards SigLIP2 NaFlex-specific
     tensors (pixel_attention_mask, spatial_shapes) to the encoder (used for legacy v1)."""
@@ -357,6 +374,7 @@ class HayaiOcr:
         quantize: Optional[str] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_v1: bool = False,
+        use_v2: bool = False,
         backend: str = "torch",
         litert_quant: Optional[str] = None,
         litert_model_path: Optional[str] = None,
@@ -372,12 +390,15 @@ class HayaiOcr:
     ):
         """
         :param pretrained_model_name_or_path: HF repo or local path for torch backend.
+            Defaults to ``JustANormalTinkerer/hayai-ocr-v2.5-nova``.
             For litert backend, if provided and points to a local directory containing
             tflite files, it acts as ``litert_model_path``.
         :param force_cpu: force CPU even if GPU available (torch backend).
         :param quantize: torch weight-only quant: "int4" / "int8".
         :param device: torch device override.
-        :param use_v1: use legacy v1 model.
+        :param use_v1: use legacy v1 model (JustANormalTinkerer/hayai-ocr).
+        :param use_v2: use previous v2 model (JustANormalTinkerer/hayai-ocr-v2)
+            instead of the default v2.5-nova checkpoint.
         :param backend: inference backend — "torch" (default) or "litert" / "tflite".
         :param litert_quant: LiteRT quantization preset: "none"/"wi4"/"wi8_afp32"/
             "dynamic_wi4"/"dynamic_wi8" plus aliases "int4","int8","float" etc.
@@ -398,7 +419,7 @@ class HayaiOcr:
             On CPU, "bfloat16" enables torch.cpu.amp.autocast for ~1.5-2× speedup on modern CPUs (AMX/BF16).
             On CUDA, "float16" (default) is used internally by the model. Ignored for litert backend.
         :param max_num_patches: NaFlex patch budget for the torch v2 backend
-            (default 256, upstream ``Siglip2ImageProcessor`` budget; override with
+            (default 512 for v2.5-nova, 256 otherwise; override with
             ``HAYAI_MAX_NUM_PATCHES`` when None). Larger values keep more detail
             on big crops at higher compute cost; smaller values are faster.
             Ignored for v1; unsupported for litert (TFLite graphs are fixed at 256).
@@ -408,6 +429,8 @@ class HayaiOcr:
             backend_norm = "litert"
         if backend_norm not in ("torch", "litert"):
             raise ValueError(f"Unknown backend {backend!r}. Use 'torch' or 'litert'.")
+        if use_v1 and use_v2:
+            raise ValueError("use_v1 and use_v2 are mutually exclusive; pass at most one.")
         self.backend = backend_norm
         self.is_litert = self.backend == "litert"
         # store compile / dtype settings for _generate_batch autocast
@@ -417,9 +440,9 @@ class HayaiOcr:
         self._compile_fullgraph = compile_fullgraph
         self._compile_dynamic = compile_dynamic
         self._dtype_hint = dtype.strip().lower() if isinstance(dtype, str) else None
-        self.max_num_patches = _resolve_max_num_patches(max_num_patches)
 
         if self.is_litert:
+            self.max_num_patches = _resolve_max_num_patches(max_num_patches, default=DEFAULT_MAX_NUM_PATCHES)
             if self.max_num_patches != 256:
                 raise ValueError(
                     f"max_num_patches={self.max_num_patches} is only supported on the torch backend; "
@@ -457,6 +480,8 @@ class HayaiOcr:
             self.litert_model_path = _litert_path
             self.pretrained_model_name_or_path = litert_model_path or pretrained_model_name_or_path or self.litert_repo
             self.is_v1 = False
+            self.is_nova = False
+            self.use_v2 = use_v2
             if LitertOcrEngine is None:
                 raise ImportError(
                     "LiteRT backend requires optional dependencies `ai_edge_litert`, `tokenizers`, `huggingface_hub`. "
@@ -482,19 +507,30 @@ class HayaiOcr:
             logger.info("OCR ready (litert)")
             return
         if use_v1 and pretrained_model_name_or_path is None:
-            pretrained_model_name_or_path = "JustANormalTinkerer/hayai-ocr"
+            pretrained_model_name_or_path = V1_REPO
+        elif use_v2 and pretrained_model_name_or_path is None:
+            pretrained_model_name_or_path = V2_REPO
         elif pretrained_model_name_or_path is None:
-            pretrained_model_name_or_path = "JustANormalTinkerer/hayai-ocr-v2"
+            pretrained_model_name_or_path = DEFAULT_REPO
 
         self.pretrained_model_name_or_path = pretrained_model_name_or_path
         self.is_v1 = use_v1 or (
-            pretrained_model_name_or_path == "JustANormalTinkerer/hayai-ocr"
+            pretrained_model_name_or_path == V1_REPO
             or (pretrained_model_name_or_path.endswith("hayai-ocr") and "v2" not in pretrained_model_name_or_path)
         )
+        self.is_nova = not self.is_v1 and _is_nova_repo(pretrained_model_name_or_path)
+        self.use_v2 = use_v2
 
-        logger.info(
-            f"Loading OCR model (mode: {'v1 (legacy)' if self.is_v1 else 'v2'}) from {pretrained_model_name_or_path}"
-        )
+        default_patches = NOVA_DEFAULT_MAX_NUM_PATCHES if self.is_nova else DEFAULT_MAX_NUM_PATCHES
+        self.max_num_patches = _resolve_max_num_patches(max_num_patches, default=default_patches)
+
+        if self.is_v1:
+            mode = "v1 (legacy)"
+        elif self.is_nova:
+            mode = "v2.5-nova"
+        else:
+            mode = "v2"
+        logger.info(f"Loading OCR model (mode: {mode}) from {pretrained_model_name_or_path}")
         if self.is_v1 and self.max_num_patches != 256:
             logger.warning("max_num_patches is ignored for the v1 model (torch v2 NaFlex only).")
 

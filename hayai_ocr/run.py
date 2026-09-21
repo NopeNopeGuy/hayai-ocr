@@ -51,6 +51,7 @@ def run(
     force_cpu=False,
     quantize=None,
     use_v1=False,
+    use_v2=False,
     backend="torch",
     litert_quant=None,
     litert_model_path=None,
@@ -67,16 +68,20 @@ def run(
     :param read_from: Specifies where to read input images from. Can be either "clipboard", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", or a path to a text file.
     :param pretrained_model_name_or_path: Path to a trained model, either local or from Transformers' model hub.
+        Defaults to JustANormalTinkerer/hayai-ocr-v2.5-nova.
     :param force_cpu: If True, OCR will use CPU even if GPU is available.
     :param quantize: Optional quantization type: "int4" or "int8".
     :param use_v1: If True, uses the legacy Hayai OCR v1 model (JustANormalTinkerer/hayai-ocr).
+    :param use_v2: If True, uses the previous Hayai OCR v2 model (JustANormalTinkerer/hayai-ocr-v2)
+        instead of the default v2.5-nova checkpoint.
     :param backend: Inference backend: "torch" (default) or "litert" / "tflite".
     :param litert_quant: LiteRT quantization preset: "none", "wi4", "wi8_afp32", "dynamic_wi4", "dynamic_wi8"
         (aliases: "int4", "int8", "float" etc). Default "wi4".
     :param litert_model_path: Local path to LiteRT quant folder (or litert_exports root).
     :param litert_repo: HF repo id for LiteRT artefacts (default JustANormalTinkerer/hayai-ocr-v2-tflite).
     :param litert_threads: Num threads for LiteRT interpreters.
-    :param max_num_patches: NaFlex patch budget for the torch v2 backend (default 256).
+    :param max_num_patches: NaFlex patch budget for the torch v2 backend (default 512 for v2.5-nova,
+        256 otherwise).
         Larger values keep more detail at higher compute cost; smaller values are faster.
         Ignored for v1; unsupported for litert. Also settable via HAYAI_MAX_NUM_PATCHES.
     :param verbose: If True, unhides all warnings.
@@ -88,6 +93,7 @@ def run(
         force_cpu=force_cpu,
         quantize=quantize,
         use_v1=use_v1,
+        use_v2=use_v2,
         backend=backend,
         litert_quant=litert_quant,
         litert_model_path=litert_model_path,
