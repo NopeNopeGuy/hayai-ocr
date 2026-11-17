@@ -1,3 +1,4 @@
+import inspect
 import os
 import re
 from pathlib import Path
@@ -28,22 +29,51 @@ except Exception:  # pragma: no cover - optional deps missing
     normalize_litert_quant = None  # type: ignore
     _LITERT_DEFAULT_REPO = "JustANormalTinkerer/hayai-ocr-v2-tflite"
 
+try:
+    from hayai_ocr.onnx import (
+        OnnxOcrEngine,
+        normalize_onnx_precision,
+        DEFAULT_HF_REPO as _ONNX_DEFAULT_REPO,
+    )
+except Exception:  # pragma: no cover - optional deps missing
+    OnnxOcrEngine = None  # type: ignore
+    normalize_onnx_precision = None  # type: ignore
+    _ONNX_DEFAULT_REPO = "JustANormalTinkerer/hayai-ocr-v2.7-supernova-onnx"
+
 
 V1_REPO = "JustANormalTinkerer/hayai-ocr"
 V2_REPO = "JustANormalTinkerer/hayai-ocr-v2"
 V25_NOVA_REPO = "JustANormalTinkerer/hayai-ocr-v2.5-nova"
-DEFAULT_REPO = V25_NOVA_REPO
+V27_SUPERNOVA_REPO = "JustANormalTinkerer/hayai-ocr-v2.7-supernova"
+DEFAULT_REPO = V27_SUPERNOVA_REPO
 
 DEFAULT_MAX_NUM_PATCHES = 256
 NOVA_DEFAULT_MAX_NUM_PATCHES = 512
+SUPERNOVA_DEFAULT_MAX_PATCHES = "auto"
+
+
+def _is_supernova_repo(repo: Optional[str]) -> bool:
+    """Return True if ``repo`` refers to the v2.7-supernova checkpoint family."""
+    if not repo:
+        return False
+    lowered = repo.lower()
+    return repo == V27_SUPERNOVA_REPO or "v2.7" in lowered or "supernova" in lowered
 
 
 def _is_nova_repo(repo: Optional[str]) -> bool:
     """Return True if ``repo`` refers to the v2.5-nova checkpoint family."""
-    if not repo:
+    if not repo or _is_supernova_repo(repo):
         return False
     lowered = repo.lower()
     return repo == V25_NOVA_REPO or "v2.5-nova" in lowered or "nova" in lowered
+
+
+def _is_v2_repo(repo: Optional[str]) -> bool:
+    """Return True if ``repo`` refers to the legacy v2 / v2.1 checkpoint family."""
+    if not repo or _is_supernova_repo(repo) or _is_nova_repo(repo):
+        return False
+    lowered = repo.lower()
+    return repo == V2_REPO or "hayai-ocr-v2" in lowered
 
 
 class MangaVisionEncoderDecoderModel(VisionEncoderDecoderModel, GenerationMixin):
@@ -121,29 +151,53 @@ def apply_torchao_quantization(model: torch.nn.Module, quant_type: Optional[str]
 # Torch-compile / inference optimizations  (CPU + GPU)
 # ---------------------------------------------------------------------------
 
-def _resolve_max_num_patches(value: Optional[int], *, default: int = 256) -> int:
-    """Resolve ``max_num_patches`` from an explicit value, env var, or default.
+def _resolve_max_num_patches(
+    value: Optional[Union[int, str]],
+    *,
+    default: Union[int, str] = 256,
+    allow_auto: bool = False,
+) -> Union[int, str]:
+    """Resolve ``max_patches`` / ``max_num_patches`` from an explicit value, env var, or default.
 
     - Explicit ``value`` (including ``0``/negative, which raises) wins.
-    - Otherwise ``HAYAI_MAX_NUM_PATCHES`` env var is honored when set.
-    - Otherwise ``default`` (256, upstream NaFlex budget) is used.
+    - Otherwise ``HAYAI_MAX_PATCHES`` or ``HAYAI_MAX_NUM_PATCHES`` env var is honored when set.
+    - Otherwise ``default`` is used.
+    - ``"auto"`` is accepted only when ``allow_auto=True`` (v2.7 Supernova / ONNX).
     """
     if value is None:
-        env = os.environ.get("HAYAI_MAX_NUM_PATCHES", "").strip()
+        env = (
+            os.environ.get("HAYAI_MAX_PATCHES", "").strip()
+            or os.environ.get("HAYAI_MAX_NUM_PATCHES", "").strip()
+        )
         if env:
-            try:
-                value = int(env)
-            except ValueError:
-                raise ValueError(
-                    f"Invalid HAYAI_MAX_NUM_PATCHES={env!r}: must be a positive integer"
-                )
-            # fall through to validation below
+            value = env
         else:
             return default
-    try:
-        resolved = int(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        raise ValueError(f"Invalid max_num_patches={value!r}: must be a positive integer")
+
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        if stripped == "auto":
+            if not allow_auto:
+                raise ValueError(
+                    "max_patches='auto' is only supported on v2.7 Supernova (torch or onnx backends)."
+                )
+            return "auto"
+        try:
+            resolved = int(stripped)
+        except ValueError:
+            raise ValueError(
+                f"Invalid max_num_patches={value!r}: must be a positive integer"
+                + (" or 'auto'" if allow_auto else "")
+            )
+    else:
+        try:
+            resolved = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Invalid max_num_patches={value!r}: must be a positive integer"
+                + (" or 'auto'" if allow_auto else "")
+            )
+
     if resolved <= 0:
         raise ValueError(f"Invalid max_num_patches={value!r}: must be a positive integer")
     return resolved
@@ -216,35 +270,14 @@ def _get_compile_candidates(
     compile_fullgraph: bool,
     compile_dynamic: Optional[bool],
 ) -> List[dict]:
-    """Return ordered list of torch.compile kwargs to try.
-
-    The first candidate is the most aggressive/fastest; later ones are fallbacks.
-
-    Note on dynamic shapes: ``dynamic=True`` forces *all* sizes/ints dynamic, which
-    the PyTorch docs call "Not recommended ... error prone" – it can cause
-    performance regressions and longer compilation. The preferred approaches are:
-
-    * automatic dynamic (default when ``dynamic`` is omitted/None) – first
-      compilation assumes static shapes, tracks input sizes, and on the first
-      recompilation marks only the dimensions that actually changed as dynamic;
-    * user annotations via ``torch._dynamo.maybe_mark_dynamic(tensor, dim)`` to
-      explicitly mark only batch / sequence dims dynamic before compile.
-
-    We therefore default to automatic dynamic (no ``dynamic`` kwarg, i.e.
-    ``dynamic=None``). ``compile_dynamic=True`` is still accepted as an
-    explicit opt-in that forces all dims dynamic, but is not used by default.
-    """
+    """Return ordered list of torch.compile kwargs to try."""
     if compile_mode is not None:
         base = {"mode": compile_mode, "fullgraph": compile_fullgraph}
         if compile_dynamic is not None:
             base["dynamic"] = compile_dynamic
-        # omitted -> automatic dynamic (recommended); do not force dynamic=True
         return [base]
 
     if "cuda" in device:
-        # GPU: autotune matmuls + optional cudagraphs.
-        # Use automatic dynamic by default (no ``dynamic`` kwarg). Forcing
-        # ``dynamic=True`` would make every dim dynamic and is not recommended.
         candidates: List[dict] = [
             {"mode": "max-autotune-no-cudagraphs", "fullgraph": False},
             {"mode": "max-autotune", "fullgraph": False},
@@ -252,11 +285,8 @@ def _get_compile_candidates(
             {"mode": "default", "fullgraph": False},
         ]
     elif device == "mps":
-        # MPS inductor support is limited as of torch 2.13; caller will skip compile entirely
         candidates = []
     else:  # cpu
-        # CPU: automatic dynamic lets inductor specialize first then generalize
-        # only the dims that actually vary (e.g., batch, ph*pw, gen length).
         candidates: List[dict] = [
             {"mode": "default", "fullgraph": False},
             {"mode": "max-autotune-no-cudagraphs", "fullgraph": False},
@@ -269,7 +299,6 @@ def _get_compile_candidates(
         for c in candidates:
             c["fullgraph"] = True
 
-    # Deduplicate while preserving order
     seen = set()
     uniq: List[dict] = []
     for c in candidates:
@@ -288,56 +317,17 @@ def _apply_torch_compile(
     compile_dynamic: Optional[bool] = None,
     compile_backend: str = "inductor",
 ) -> torch.nn.Module:
-    """Apply torch.compile with device-aware defaults and safe fallbacks.
-
-    Uses automatic dynamic shapes (the PyTorch-recommended default) instead of
-    ``dynamic=True``. With automatic dynamic (``dynamic`` omitted / ``None``),
-    the first compilation assumes static shapes; on the first recompilation the
-    dimensions that actually changed (e.g. batch, ``ph*pw``, generation length)
-    are marked dynamic. This avoids forcing *all* dims dynamic (error-prone and
-    slower per docs) while still eliminating repeated recompiles after warmup.
-
-    If the user explicitly wants to annotate only the dims that vary, the
-    recommended API is ``torch._dynamo.maybe_mark_dynamic(tensor, dim)`` on the
-    inputs *before* compile, rather than ``torch.compile(dynamic=True)``. We
-    optionally apply ``maybe_mark_dynamic`` for the batch dim when available
-    (best-effort, ignored on older torch).
-
-    - On GPU: tries max-autotune-no-cudagraphs -> max-autotune -> reduce-overhead -> default
-    - On CPU: tries default with inductor CPU codegen, weight prepack & freezing
-    - On MPS: skips compile (not reliably supported)
-    - Also tries to pre-compile vision_encoder separately for HayaiModel to improve cache granularity.
-
-    Returns compiled model or original model on failure.
-    """
+    """Apply torch.compile with device-aware defaults and safe fallbacks (for legacy v1/v2/v2.5)."""
     if device == "mps":
         logger.info("torch.compile skipped on MPS (inductor not fully supported)")
         return model
 
     _configure_torch_for_inference(device)
 
-    # Env var to force-disable compile (useful for debugging)
     if os.environ.get("HAYAI_DISABLE_COMPILE", "0") == "1":
         logger.info("torch.compile disabled via HAYAI_DISABLE_COMPILE=1")
         return model
 
-    # Recommended user-annotation example (no-op if not available): mark only
-    # the batch dimension dynamic instead of forcing all dims dynamic.
-    # This is the preferred alternative to ``dynamic=True``.
-    # We do this best-effort on a dummy tensor just to document the pattern;
-    # actual dynamic handling relies on automatic dynamic (see _get_compile_candidates).
-    try:
-        # No tensor to annotate here; HayaiOcr warmup will trigger automatic
-        # dynamic on second shape variant. If you know batch dim varies, you
-        # could do: torch._dynamo.maybe_mark_dynamic(pixel_values, 0)
-        # before the first compiled call. We keep this as documentation.
-        pass
-    except Exception:
-        pass
-
-    # Try to pre-compile vision_encoder separately (Hayai v2) for better dynamism handling.
-    # Vision encoder has variable sequence length (ph*pw <=256) but fixed tensor
-    # shape (B,256,768); automatic dynamic will handle the effective length.
     if hasattr(model, "vision_encoder"):
         cands = _get_compile_candidates(device, compile_mode, compile_fullgraph, compile_dynamic)
         if cands:
@@ -375,65 +365,89 @@ class HayaiOcr:
         device: Optional[Union[str, torch.device]] = None,
         use_v1: bool = False,
         use_v2: bool = False,
+        use_v25: bool = False,
         backend: str = "torch",
         litert_quant: Optional[str] = None,
         litert_model_path: Optional[str] = None,
         litert_repo: Optional[str] = None,
         litert_threads: Optional[int] = None,
+        onnx_precision: Optional[str] = None,
+        onnx_model_path: Optional[str] = None,
+        onnx_repo: Optional[str] = None,
+        onnx_providers: Optional[List[str]] = None,
+        onnx_threads: Optional[int] = None,
         compile: bool = True,
         compile_mode: Optional[str] = None,
         compile_backend: str = "inductor",
         compile_fullgraph: bool = False,
         compile_dynamic: Optional[bool] = None,
         dtype: Optional[str] = None,
-        max_num_patches: Optional[int] = None,
+        max_num_patches: Optional[Union[int, str]] = None,
+        max_patches: Optional[Union[int, str]] = None,
+        batch_size: int = 64,
     ):
         """
         :param pretrained_model_name_or_path: HF repo or local path for torch backend.
-            Defaults to ``JustANormalTinkerer/hayai-ocr-v2.5-nova``.
-            For litert backend, if provided and points to a local directory containing
-            tflite files, it acts as ``litert_model_path``.
-        :param force_cpu: force CPU even if GPU available (torch backend).
+            Defaults to ``JustANormalTinkerer/hayai-ocr-v2.7-supernova``.
+            For litert/onnx backends, if provided and points to a local directory,
+            it acts as ``litert_model_path`` / ``onnx_model_path``.
+        :param force_cpu: force CPU even if GPU available (torch / onnx backends).
         :param quantize: torch weight-only quant: "int4" / "int8".
         :param device: torch device override.
         :param use_v1: use legacy v1 model (JustANormalTinkerer/hayai-ocr).
-        :param use_v2: use previous v2 model (JustANormalTinkerer/hayai-ocr-v2)
-            instead of the default v2.5-nova checkpoint.
-        :param backend: inference backend — "torch" (default) or "litert" / "tflite".
+        :param use_v2: use older v2 model (JustANormalTinkerer/hayai-ocr-v2)
+            instead of the default v2.7-supernova checkpoint.
+        :param use_v25: use previous v2.5-nova model (JustANormalTinkerer/hayai-ocr-v2.5-nova)
+            instead of the default v2.7-supernova checkpoint.
+        :param backend: inference backend — "torch" (default), "onnx" (v2.7 Supernova without PyTorch),
+            or "litert" / "tflite" (older v2 model).
         :param litert_quant: LiteRT quantization preset: "none"/"wi4"/"wi8_afp32"/
             "dynamic_wi4"/"dynamic_wi8" plus aliases "int4","int8","float" etc.
-            Ignored for torch backend.
+            Ignored for torch/onnx backends.
         :param litert_model_path: local path to LiteRT quant folder (or litert_exports root).
-            If None, auto-downloads from HF.
         :param litert_repo: HF repo id hosting litert_exports (default JustANormalTinkerer/hayai-ocr-v2-tflite).
         :param litert_threads: num threads for LiteRT interpreters.
-        :param compile: whether to use torch.compile for the pytorch backend (default True).
-            Disable with compile=False or HAYAI_DISABLE_COMPILE=1.
-        :param compile_mode: torch.compile mode override. If None, picks device-aware default:
-            CPU -> "default", CUDA -> "max-autotune-no-cudagraphs" (fastest on GPU),
-            with fallbacks to "reduce-overhead" / "default".
+        :param onnx_precision: ONNX precision preset: "fp32", "fp16", "int8" (default), or "int4".
+        :param onnx_model_path: local path to ONNX export directory. If None, auto-downloads from HF.
+        :param onnx_repo: HF repo id hosting ONNX exports (default JustANormalTinkerer/hayai-ocr-v2.7-supernova-onnx).
+        :param onnx_providers: ONNX Runtime execution providers override.
+        :param onnx_threads: num intra-op threads for ONNX Runtime CPU sessions.
+        :param compile: whether to use torch.compile for legacy PyTorch models (default True).
+            v2.7 Supernova uses its built-in _FastEngine / CUDA Graphs instead of outer torch.compile.
+        :param compile_mode: torch.compile mode override for legacy v1/v2/v2.5 models.
         :param compile_backend: torch.compile backend (default "inductor").
         :param compile_fullgraph: whether to require fullgraph capture (default False).
         :param compile_dynamic: whether to enable dynamic shapes (None = auto, True/False = force).
         :param dtype: inference dtype hint for autocast — "bfloat16", "float16", "float32" or None (auto).
-            On CPU, "bfloat16" enables torch.cpu.amp.autocast for ~1.5-2× speedup on modern CPUs (AMX/BF16).
-            On CUDA, "float16" (default) is used internally by the model. Ignored for litert backend.
-        :param max_num_patches: NaFlex patch budget for the torch v2 backend
-            (default 512 for v2.5-nova, 256 otherwise; override with
-            ``HAYAI_MAX_NUM_PATCHES`` when None). Larger values keep more detail
-            on big crops at higher compute cost; smaller values are faster.
-            Ignored for v1; unsupported for litert (TFLite graphs are fixed at 256).
+        :param max_num_patches: alias for ``max_patches`` (kept for backwards compatibility).
+        :param max_patches: NaFlex patch budget. Defaults to ``"auto"`` for v2.7 Supernova / ONNX
+            (routes per crop across {128, 192, 256, 384}), ``512`` for v2.5-nova, and ``256`` for v2.
+            Ignored for v1; fixed at 256 for litert. Also settable via ``HAYAI_MAX_PATCHES`` /
+            ``HAYAI_MAX_NUM_PATCHES``.
+        :param batch_size: default batch size for v2.7 Supernova / ONNX batched inference (default 64).
         """
         backend_norm = backend.strip().lower() if isinstance(backend, str) else "torch"
         if backend_norm in ("tflite", "lite_rt", "litert"):
             backend_norm = "litert"
-        if backend_norm not in ("torch", "litert"):
-            raise ValueError(f"Unknown backend {backend!r}. Use 'torch' or 'litert'.")
-        if use_v1 and use_v2:
-            raise ValueError("use_v1 and use_v2 are mutually exclusive; pass at most one.")
+        elif backend_norm in ("onnx", "ort", "onnxruntime"):
+            backend_norm = "onnx"
+        if backend_norm not in ("torch", "litert", "onnx"):
+            raise ValueError(f"Unknown backend {backend!r}. Use 'torch', 'onnx', or 'litert'.")
+
+        if sum(bool(x) for x in (use_v1, use_v2, use_v25)) > 1:
+            raise ValueError("use_v1, use_v2, and use_v25 are mutually exclusive; pass at most one.")
+
+        if max_patches is not None and max_num_patches is not None and max_patches != max_num_patches:
+            logger.warning(
+                f"Both max_patches={max_patches!r} and max_num_patches={max_num_patches!r} were passed; "
+                f"using max_patches={max_patches!r}."
+            )
+        patch_arg = max_patches if max_patches is not None else max_num_patches
+
         self.backend = backend_norm
         self.is_litert = self.backend == "litert"
-        # store compile / dtype settings for _generate_batch autocast
+        self.is_onnx = self.backend == "onnx"
+        self.batch_size = int(batch_size)
         self._compile = compile
         self._compile_mode = compile_mode
         self._compile_backend = compile_backend
@@ -441,15 +455,96 @@ class HayaiOcr:
         self._compile_dynamic = compile_dynamic
         self._dtype_hint = dtype.strip().lower() if isinstance(dtype, str) else None
 
+        # ----- ONNX backend (v2.7 Supernova) -----
+        if self.is_onnx:
+            if use_v1 or use_v2 or use_v25:
+                raise ValueError(
+                    "ONNX backend only supports Hayai OCR v2.7 Supernova "
+                    "(use_v1, use_v2, and use_v25 must be False)."
+                )
+            if quantize is not None:
+                logger.warning(
+                    "quantize is for torch backend; did you mean onnx_precision? Ignoring quantize for onnx."
+                )
+            self.max_num_patches = _resolve_max_num_patches(
+                patch_arg, default=SUPERNOVA_DEFAULT_MAX_PATCHES, allow_auto=True
+            )
+            _prec = onnx_precision if onnx_precision is not None else "int8"
+            _prec_canon = normalize_onnx_precision(_prec) if normalize_onnx_precision is not None else _prec
+            self.onnx_precision = _prec_canon
+            self.onnx_repo = onnx_repo or _ONNX_DEFAULT_REPO
+            _onnx_path = onnx_model_path
+            if _onnx_path is None and pretrained_model_name_or_path is not None:
+                p = Path(pretrained_model_name_or_path)
+                if p.exists():
+                    _onnx_path = pretrained_model_name_or_path
+                    logger.info(f"Using pretrained_model_name_or_path as onnx_model_path: {p}")
+                elif "/" not in pretrained_model_name_or_path and pretrained_model_name_or_path.lower() in (
+                    "fp32", "float", "float32", "none", "fp16", "float16", "half", "int8", "wi8", "int4", "wi4"
+                ):
+                    self.onnx_precision = (
+                        normalize_onnx_precision(pretrained_model_name_or_path)
+                        if normalize_onnx_precision is not None
+                        else pretrained_model_name_or_path.lower()
+                    )
+                    _onnx_path = None
+            self.onnx_model_path = _onnx_path
+            self.pretrained_model_name_or_path = onnx_model_path or pretrained_model_name_or_path or self.onnx_repo
+            self.is_v1 = False
+            self.is_v2 = False
+            self.is_nova = False
+            self.is_supernova = True
+            self.use_v2 = False
+            self.use_v25 = False
+
+            if OnnxOcrEngine is None:
+                raise ImportError(
+                    "ONNX backend requires optional dependencies `onnxruntime`, `tokenizers`, `huggingface_hub`. "
+                    "Install with `pip install hayai-ocr[onnx]` or `pip install onnxruntime tokenizers huggingface_hub`."
+                )
+
+            providers = onnx_providers
+            if providers is None and (force_cpu or (device is not None and str(device) == "cpu")):
+                providers = ["CPUExecutionProvider"]
+
+            logger.info(
+                f"Loading OCR model (mode: v2.7-supernova onnx, precision={self.onnx_precision}) "
+                f"from {self.pretrained_model_name_or_path}"
+            )
+            self.device = "cpu" if (force_cpu or providers == ["CPUExecutionProvider"]) else "auto"
+            self.processor = None  # type: ignore
+            self.tokenizer = None  # type: ignore
+            self.onnx_engine = OnnxOcrEngine(
+                model_dir=self.onnx_model_path,
+                precision=self.onnx_precision,
+                hf_repo=self.onnx_repo,
+                providers=providers,
+                num_threads=onnx_threads,
+            )
+            self.model = self.onnx_engine  # type: ignore
+            example_path = Path(__file__).parent / "assets/example.jpg"
+            if example_path.is_file():
+                try:
+                    self(example_path)
+                except Exception as e:
+                    logger.warning(f"ONNX warmup failed: {e}")
+            logger.info("OCR ready (onnx)")
+            return
+
+        # ----- LiteRT backend (legacy v2 only) -----
         if self.is_litert:
-            self.max_num_patches = _resolve_max_num_patches(max_num_patches, default=DEFAULT_MAX_NUM_PATCHES)
+            if use_v1 or use_v25:
+                raise ValueError(
+                    "LiteRT backend only supports Hayai OCR v2 (use_v1 and use_v25 must be False)."
+                )
+            self.max_num_patches = _resolve_max_num_patches(
+                patch_arg, default=DEFAULT_MAX_NUM_PATCHES, allow_auto=False
+            )
             if self.max_num_patches != 256:
                 raise ValueError(
-                    f"max_num_patches={self.max_num_patches} is only supported on the torch backend; "
+                    f"max_num_patches={self.max_num_patches} is only supported on the torch/onnx backends; "
                     "LiteRT exports have a fixed 256-patch layout."
                 )
-            if use_v1:
-                raise ValueError("LiteRT backend only supports Hayai OCR v2 (use_v1 must be False).")
             if quantize is not None:
                 logger.warning("quantize is for torch backend; did you mean litert_quant? Ignoring quantize for litert.")
             _quant = litert_quant if litert_quant is not None else "wi4"
@@ -480,8 +575,11 @@ class HayaiOcr:
             self.litert_model_path = _litert_path
             self.pretrained_model_name_or_path = litert_model_path or pretrained_model_name_or_path or self.litert_repo
             self.is_v1 = False
+            self.is_v2 = True
             self.is_nova = False
-            self.use_v2 = use_v2
+            self.is_supernova = False
+            self.use_v2 = True
+            self.use_v25 = False
             if LitertOcrEngine is None:
                 raise ImportError(
                     "LiteRT backend requires optional dependencies `ai_edge_litert`, `tokenizers`, `huggingface_hub`. "
@@ -506,33 +604,51 @@ class HayaiOcr:
                     logger.warning(f"LiteRT warmup failed: {e}")
             logger.info("OCR ready (litert)")
             return
+
+        # ----- PyTorch backend -----
         if use_v1 and pretrained_model_name_or_path is None:
             pretrained_model_name_or_path = V1_REPO
         elif use_v2 and pretrained_model_name_or_path is None:
             pretrained_model_name_or_path = V2_REPO
+        elif use_v25 and pretrained_model_name_or_path is None:
+            pretrained_model_name_or_path = V25_NOVA_REPO
         elif pretrained_model_name_or_path is None:
             pretrained_model_name_or_path = DEFAULT_REPO
 
         self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.use_v2 = use_v2
+        self.use_v25 = use_v25
+
         self.is_v1 = use_v1 or (
             pretrained_model_name_or_path == V1_REPO
             or (pretrained_model_name_or_path.endswith("hayai-ocr") and "v2" not in pretrained_model_name_or_path)
         )
-        self.is_nova = not self.is_v1 and _is_nova_repo(pretrained_model_name_or_path)
-        self.use_v2 = use_v2
+        self.is_nova = not self.is_v1 and (use_v25 or _is_nova_repo(pretrained_model_name_or_path))
+        self.is_v2 = not self.is_v1 and not self.is_nova and (use_v2 or _is_v2_repo(pretrained_model_name_or_path))
+        self.is_supernova = (
+            not self.is_v1
+            and not self.is_nova
+            and not self.is_v2
+            and _is_supernova_repo(pretrained_model_name_or_path)
+        )
 
-        default_patches = NOVA_DEFAULT_MAX_NUM_PATCHES if self.is_nova else DEFAULT_MAX_NUM_PATCHES
-        self.max_num_patches = _resolve_max_num_patches(max_num_patches, default=default_patches)
-
+        # Warnings for older model versions
         if self.is_v1:
-            mode = "v1 (legacy)"
+            logger.warning(
+                "Hayai OCR v1 (JustANormalTinkerer/hayai-ocr) is a legacy model that is Japanese-only, "
+                "slower, and significantly less accurate. Consider using the default v2.7 Supernova model."
+            )
+        elif self.is_v2:
+            logger.warning(
+                "Hayai OCR v2 (JustANormalTinkerer/hayai-ocr-v2) is an older model version. "
+                "Consider using the default v2.7 Supernova model for substantially higher accuracy and speed."
+            )
         elif self.is_nova:
-            mode = "v2.5-nova"
-        else:
-            mode = "v2"
-        logger.info(f"Loading OCR model (mode: {mode}) from {pretrained_model_name_or_path}")
-        if self.is_v1 and self.max_num_patches != 256:
-            logger.warning("max_num_patches is ignored for the v1 model (torch v2 NaFlex only).")
+            logger.warning(
+                "Hayai OCR v2.5-nova (JustANormalTinkerer/hayai-ocr-v2.5-nova) is an older model version. "
+                "Consider using the default v2.7 Supernova model for higher accuracy, adaptive patch routing, "
+                "and stronger CJK + English recognition."
+            )
 
         if force_cpu:
             self.device = "cpu"
@@ -546,12 +662,24 @@ class HayaiOcr:
             self.device = "cpu"
 
         if self.is_v1:
+            self.max_num_patches = _resolve_max_num_patches(
+                patch_arg, default=DEFAULT_MAX_NUM_PATCHES, allow_auto=False
+            )
+            if self.max_num_patches != 256:
+                logger.warning("max_num_patches is ignored for the v1 model (torch v2+ NaFlex only).")
+            logger.info(f"Loading OCR model (mode: v1 (legacy)) from {pretrained_model_name_or_path}")
             self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name_or_path)
             self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
             self.model = MangaVisionEncoderDecoderModel.from_pretrained(pretrained_model_name_or_path)
             self.model.to(self.device)
             self.model.eval()
-        else:
+        elif self.is_nova or self.is_v2:
+            default_patches = NOVA_DEFAULT_MAX_NUM_PATCHES if self.is_nova else DEFAULT_MAX_NUM_PATCHES
+            self.max_num_patches = _resolve_max_num_patches(
+                patch_arg, default=default_patches, allow_auto=False
+            )
+            mode = "v2.5-nova" if self.is_nova else "v2"
+            logger.info(f"Loading OCR model (mode: {mode}) from {pretrained_model_name_or_path}")
             self.processor = AutoProcessor.from_pretrained("google/siglip2-base-patch16-naflex")
             self.tokenizer = PreTrainedTokenizerFast.from_pretrained(pretrained_model_name_or_path)
 
@@ -562,9 +690,66 @@ class HayaiOcr:
             self.model.to(self.device)
             apply_torchao_quantization(self.model, quantize)
             self.model.eval()
+        else:
+            # v2.7 Supernova (default) or custom checkpoint
+            logger.info(
+                f"Loading OCR model (mode: {'v2.7-supernova' if self.is_supernova else 'auto'}) "
+                f"from {pretrained_model_name_or_path}"
+            )
+            if self.is_supernova:
+                self.processor = AutoProcessor.from_pretrained(
+                    pretrained_model_name_or_path, trust_remote_code=True
+                )
+                self.tokenizer = getattr(self.processor, "tokenizer", None)
+                if self.tokenizer is None:
+                    try:
+                        self.tokenizer = AutoTokenizer.from_pretrained(
+                            pretrained_model_name_or_path, trust_remote_code=True
+                        )
+                    except Exception:
+                        self.tokenizer = None
+            else:
+                try:
+                    self.processor = AutoProcessor.from_pretrained(
+                        pretrained_model_name_or_path, trust_remote_code=True
+                    )
+                    self.tokenizer = getattr(self.processor, "tokenizer", None)
+                except Exception:
+                    self.processor = AutoProcessor.from_pretrained("google/siglip2-base-patch16-naflex")
+                    self.tokenizer = PreTrainedTokenizerFast.from_pretrained(pretrained_model_name_or_path)
 
-        # ----- torch.compile (device-aware, much faster on CPU & GPU) -----
-        if self._compile:
+            logger.info(f"Loading model on {self.device}...")
+            self.model = AutoModel.from_pretrained(
+                pretrained_model_name_or_path, trust_remote_code=True
+            )
+            if hasattr(self.model, "ocr"):
+                self.is_supernova = True
+            if self.is_supernova and hasattr(self.model, "drop_ids_head"):
+                try:
+                    self.model.drop_ids_head()
+                except Exception as e:
+                    logger.debug(f"drop_ids_head() skipped: {e}")
+
+            self.model.to(self.device)
+            apply_torchao_quantization(self.model, quantize)
+            self.model.eval()
+
+            if self.is_supernova:
+                self.max_num_patches = _resolve_max_num_patches(
+                    patch_arg, default=SUPERNOVA_DEFAULT_MAX_PATCHES, allow_auto=True
+                )
+            else:
+                self.max_num_patches = _resolve_max_num_patches(
+                    patch_arg, default=DEFAULT_MAX_NUM_PATCHES, allow_auto=False
+                )
+
+        # ----- torch.compile -----
+        # v2.7 Supernova uses its built-in _FastEngine / CUDA Graphs and internal kernel compile;
+        # wrapping it in outer torch.compile would interfere with vision_encoder inspection & CUDA graphs.
+        if self.is_supernova:
+            _configure_torch_for_inference(self.device)
+            logger.debug("Skipping outer torch.compile for v2.7 Supernova (uses built-in _FastEngine)")
+        elif self._compile:
             self.model = _apply_torch_compile(
                 self.model,
                 self.device,
@@ -591,8 +776,16 @@ class HayaiOcr:
         img_or_path: Union[str, Path, Image.Image, List[Union[str, Path, Image.Image]]],
         max_new_tokens: int = 128,
         repetition_penalty: float = 1.00,
-        max_num_patches: Optional[int] = None,
+        max_num_patches: Optional[Union[int, str]] = None,
+        max_patches: Optional[Union[int, str]] = None,
     ) -> Union[str, List[str]]:
+        if max_patches is not None and max_num_patches is not None and max_patches != max_num_patches:
+            logger.warning(
+                f"Both max_patches={max_patches!r} and max_num_patches={max_num_patches!r} were passed; "
+                f"using max_patches={max_patches!r}."
+            )
+        patch_arg = max_patches if max_patches is not None else max_num_patches
+
         if isinstance(img_or_path, (list, tuple)):
             images = []
             for item in img_or_path:
@@ -608,7 +801,7 @@ class HayaiOcr:
                 images,
                 max_new_tokens=max_new_tokens,
                 repetition_penalty=repetition_penalty,
-                max_num_patches=max_num_patches,
+                max_num_patches=patch_arg,
             )
         else:
             if isinstance(img_or_path, (str, Path)):
@@ -622,35 +815,107 @@ class HayaiOcr:
                 [img],
                 max_new_tokens=max_new_tokens,
                 repetition_penalty=repetition_penalty,
-                max_num_patches=max_num_patches,
+                max_num_patches=patch_arg,
             )[0]
+
+    def _run_supernova_ocr(
+        self,
+        pil_images: List[Image.Image],
+        effective_patches: Union[int, str],
+        max_new_tokens: int,
+        repetition_penalty: float,
+    ) -> List[str]:
+        use_cuda_graph = "cuda" in str(self.device)
+        ocr_kwargs: dict = {
+            "max_patches": effective_patches,
+            "max_new_tokens": max_new_tokens,
+            "use_cuda_graph": use_cuda_graph,
+        }
+        if len(pil_images) > 1:
+            ocr_kwargs["batch_size"] = self.batch_size
+            ocr_kwargs["escalate"] = False
+
+        if repetition_penalty != 1.0:
+            logger.warning(
+                f"repetition_penalty={repetition_penalty} is discouraged on v2.7 Supernova "
+                "(CJK text relies on legitimate character repetition; keep repetition_penalty=1.0)."
+            )
+            try:
+                sig = inspect.signature(self.model.ocr)
+                if "repetition_penalty" in sig.parameters:
+                    ocr_kwargs["repetition_penalty"] = repetition_penalty
+            except Exception:
+                pass
+
+        inp = pil_images[0] if len(pil_images) == 1 else pil_images
+
+        def _invoke():
+            res = self.model.ocr(inp, self.processor, **ocr_kwargs)
+            return [res] if isinstance(res, str) else list(res)
+
+        with torch.inference_mode():
+            if self.device == "cpu" and self._dtype_hint != "float32":
+                want_bf16 = self._dtype_hint in (None, "auto", "bfloat16", "bf16")
+                if os.environ.get("HAYAI_DTYPE", "").lower() in ("float32", "fp32"):
+                    want_bf16 = False
+                if want_bf16:
+                    try:
+                        with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                            return _invoke()
+                    except Exception as e:
+                        logger.debug(f"CPU bfloat16 autocast failed ({e}), falling back to float32")
+            elif "cuda" in str(self.device) and self._dtype_hint != "float32":
+                cuda_dtype = torch.bfloat16 if self._dtype_hint in ("bfloat16", "bf16") else torch.float16
+                try:
+                    with torch.autocast(device_type="cuda", dtype=cuda_dtype):
+                        return _invoke()
+                except Exception as e:
+                    logger.debug(f"CUDA autocast failed ({e}), falling back")
+
+            return _invoke()
 
     def _generate_batch(
         self,
         pil_images: List[Image.Image],
         max_new_tokens: int = 128,
         repetition_penalty: float = 1.00,
-        max_num_patches: Optional[int] = None,
+        max_num_patches: Optional[Union[int, str]] = None,
     ) -> List[str]:
+        if getattr(self, "is_onnx", False):
+            effective_patches = (
+                self.max_num_patches
+                if max_num_patches is None
+                else _resolve_max_num_patches(max_num_patches, default=SUPERNOVA_DEFAULT_MAX_PATCHES, allow_auto=True)
+            )
+            if repetition_penalty != 1.0:
+                logger.warning(
+                    "repetition_penalty != 1.0 is not supported by the ONNX backend "
+                    "(and is discouraged for v2.7 Supernova); using greedy decoding (1.0)."
+                )
+            res = self.onnx_engine.ocr(
+                pil_images,
+                max_patches=effective_patches,
+                max_new_tokens=max_new_tokens,
+                batch_size=self.batch_size,
+            )
+            return [res] if isinstance(res, str) else list(res)
+
         if getattr(self, "is_litert", False):
-            if max_num_patches is not None and _resolve_max_num_patches(max_num_patches) != 256:
+            if max_num_patches is not None and _resolve_max_num_patches(max_num_patches, allow_auto=False) != 256:
                 raise ValueError(
-                    "max_num_patches is only supported on the torch backend; "
+                    "max_num_patches is only supported on the torch/onnx backends; "
                     "LiteRT exports have a fixed 256-patch layout."
                 )
             mt = min(max_new_tokens, 64) if max_new_tokens > 64 else max_new_tokens
             return self.litert_engine.generate_batch(pil_images, max_new_tokens=mt, repetition_penalty=repetition_penalty)
+
         if self.is_v1:
             # Try batched path for v1 (faster on GPU & compiled inductor)
             if len(pil_images) > 1:
                 try:
-                    # AutoImageProcessor supports batched images
                     inputs = self.processor(images=pil_images, return_tensors="pt", padding=True)
-                    # move with non_blocking for GPU
                     to_kwargs = {"non_blocking": True} if "cuda" in str(self.device) else {}
                     pixel_values = inputs["pixel_values"].to(self.device, **to_kwargs)  # type: ignore
-                    # v1 processor returns pixel_attention_mask / spatial_shapes for NaFlex models;
-                    # for pure ViT they may be absent
                     pixel_attention_mask = inputs.get("pixel_attention_mask")
                     spatial_shapes = inputs.get("spatial_shapes")
                     gen_kwargs = {
@@ -663,9 +928,7 @@ class HayaiOcr:
                     if spatial_shapes is not None:
                         gen_kwargs["spatial_shapes"] = spatial_shapes.to(self.device, **to_kwargs)
                     with torch.inference_mode():
-                        # Use autocast for faster gemm (BF16 on CPU, FP16 on CUDA)
                         if self.device == "cpu" and self._dtype_hint != "float32":
-                            # Prefer bfloat16 on CPU for ~1.5-2× (requires AMX/BF16 capable CPU, falls back gracefully)
                             try:
                                 with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
                                     out_ids = self.model.generate(**gen_kwargs)
@@ -679,15 +942,12 @@ class HayaiOcr:
                                 out_ids = self.model.generate(**gen_kwargs)
                         else:
                             out_ids = self.model.generate(**gen_kwargs)
-                    # out_ids: (batch, seq_len)
                     if isinstance(out_ids, torch.Tensor):
                         out_ids = out_ids.cpu()
                     else:
-                        # HF generate may return list?
                         out_ids = torch.stack([o.cpu() if isinstance(o, torch.Tensor) else torch.tensor(o) for o in out_ids])
                     results = []
                     for seq in out_ids:
-                        # tokenizer expects 1D
                         if isinstance(seq, torch.Tensor):
                             seq = seq.tolist()
                         text = self.tokenizer.decode(seq, skip_special_tokens=True)
@@ -697,7 +957,6 @@ class HayaiOcr:
                 except Exception as e:
                     logger.debug(f"Batched v1 generate failed ({e}), falling back to per-image loop")
 
-            # Fallback: per-image loop (original behaviour) but with inference_mode + autocast
             results = []
             for img in pil_images:
                 inputs = self.processor(images=img, return_tensors="pt")
@@ -731,76 +990,98 @@ class HayaiOcr:
                     text = self.tokenizer.decode(seq, skip_special_tokens=True)
                     results.append(post_process(text))
             return results
-        else:
+
+        if self.is_supernova:
             effective_patches = (
                 self.max_num_patches
                 if max_num_patches is None
-                else _resolve_max_num_patches(max_num_patches)
-            )
-            inputs = self.processor(images=pil_images, max_num_patches=effective_patches, return_tensors="pt")
-
-            to_kwargs = {"non_blocking": True} if "cuda" in str(self.device) else {}
-            pixel_values = inputs.pixel_values.to(self.device, **to_kwargs)
-            pixel_attention_mask = inputs.pixel_attention_mask.to(self.device, **to_kwargs)
-            spatial_shapes = inputs.spatial_shapes.to(self.device, **to_kwargs)
-
-            # torch.inference_mode is faster than torch.no_grad (disables version counter)
-            # + CPU bfloat16 autocast gives ~1.5-2× on AVX-512/BF16 / AMX CPUs.
-            # HayaiModel.generate already does cuda autocast internally, but we add outer
-            # cpu autocast here to accelerate the CPU path without touching HF hub code.
-            with torch.inference_mode():
-                if self.device == "cpu" and self._dtype_hint != "float32":
-                    # bfloat16 autocast on CPU (oneDNN). Falls back gracefully on older CPUs.
-                    # User can force float32 via dtype="float32" or HAYAI_DTYPE env.
-                    want_bf16 = self._dtype_hint in (None, "auto", "bfloat16", "bf16")
-                    # Also respect env var for easy disabling
-                    if os.environ.get("HAYAI_DTYPE", "").lower() in ("float32", "fp32"):
-                        want_bf16 = False
-                    if want_bf16:
-                        try:
-                            with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-                                generated_texts = self.model.generate(
-                                    pixel_values=pixel_values,
-                                    pixel_attention_mask=pixel_attention_mask,
-                                    spatial_shapes=spatial_shapes,
-                                    tokenizer=self.tokenizer,
-                                    max_new_tokens=max_new_tokens,
-                                    repetition_penalty=repetition_penalty,
-                                )
-                            return generated_texts
-                        except Exception as e:
-                            logger.debug(f"CPU bfloat16 autocast failed ({e}), falling back to float32")
-                elif "cuda" in str(self.device):
-                    # For CUDA the model's internal autocast already uses float16,
-                    # but wrapping in outer autocast can help inductor fuse casts.
-                    # We still use inference_mode + optional outer autocast.
-                    if self._dtype_hint in ("float16", "fp16", None, "auto"):
-                        try:
-                            with torch.autocast(device_type="cuda", dtype=torch.float16):
-                                generated_texts = self.model.generate(
-                                    pixel_values=pixel_values,
-                                    pixel_attention_mask=pixel_attention_mask,
-                                    spatial_shapes=spatial_shapes,
-                                    tokenizer=self.tokenizer,
-                                    max_new_tokens=max_new_tokens,
-                                    repetition_penalty=repetition_penalty,
-                                )
-                            return generated_texts
-                        except Exception as e:
-                            logger.debug(f"CUDA float16 autocast failed ({e}), falling back")
-                # Fallback: no outer autocast (lets model.generate handle it)
-                generated_texts = self.model.generate(
-                    pixel_values=pixel_values,
-                    pixel_attention_mask=pixel_attention_mask,
-                    spatial_shapes=spatial_shapes,
-                    tokenizer=self.tokenizer,
-                    max_new_tokens=max_new_tokens,
-                    repetition_penalty=repetition_penalty,
+                else _resolve_max_num_patches(
+                    max_num_patches, default=SUPERNOVA_DEFAULT_MAX_PATCHES, allow_auto=True
                 )
+            )
+            return self._run_supernova_ocr(
+                pil_images,
+                effective_patches=effective_patches,
+                max_new_tokens=max_new_tokens,
+                repetition_penalty=repetition_penalty,
+            )
 
-            return generated_texts
+        # Legacy v2 / v2.5-nova path
+        effective_patches = (
+            self.max_num_patches
+            if max_num_patches is None
+            else _resolve_max_num_patches(max_num_patches, allow_auto=False)
+        )
+        inputs = self.processor(images=pil_images, max_num_patches=effective_patches, return_tensors="pt")
+
+        to_kwargs = {"non_blocking": True} if "cuda" in str(self.device) else {}
+        pixel_values = inputs.pixel_values.to(self.device, **to_kwargs)
+        pixel_attention_mask = inputs.pixel_attention_mask.to(self.device, **to_kwargs)
+        spatial_shapes = inputs.spatial_shapes.to(self.device, **to_kwargs)
+
+        with torch.inference_mode():
+            if self.device == "cpu" and self._dtype_hint != "float32":
+                want_bf16 = self._dtype_hint in (None, "auto", "bfloat16", "bf16")
+                if os.environ.get("HAYAI_DTYPE", "").lower() in ("float32", "fp32"):
+                    want_bf16 = False
+                if want_bf16:
+                    try:
+                        with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+                            generated_texts = self.model.generate(
+                                pixel_values=pixel_values,
+                                pixel_attention_mask=pixel_attention_mask,
+                                spatial_shapes=spatial_shapes,
+                                tokenizer=self.tokenizer,
+                                max_new_tokens=max_new_tokens,
+                                repetition_penalty=repetition_penalty,
+                            )
+                        return generated_texts
+                    except Exception as e:
+                        logger.debug(f"CPU bfloat16 autocast failed ({e}), falling back to float32")
+            elif "cuda" in str(self.device):
+                if self._dtype_hint in ("float16", "fp16", None, "auto"):
+                    try:
+                        with torch.autocast(device_type="cuda", dtype=torch.float16):
+                            generated_texts = self.model.generate(
+                                pixel_values=pixel_values,
+                                pixel_attention_mask=pixel_attention_mask,
+                                spatial_shapes=spatial_shapes,
+                                tokenizer=self.tokenizer,
+                                max_new_tokens=max_new_tokens,
+                                repetition_penalty=repetition_penalty,
+                            )
+                        return generated_texts
+                    except Exception as e:
+                        logger.debug(f"CUDA float16 autocast failed ({e}), falling back")
+
+            generated_texts = self.model.generate(
+                pixel_values=pixel_values,
+                pixel_attention_mask=pixel_attention_mask,
+                spatial_shapes=spatial_shapes,
+                tokenizer=self.tokenizer,
+                max_new_tokens=max_new_tokens,
+                repetition_penalty=repetition_penalty,
+            )
+
+        return generated_texts
 
     def _preprocess(self, img):
+        if getattr(self, "is_onnx", False):
+            if not isinstance(img, (list, tuple)):
+                img = [img]
+            pil_list = [
+                Image.open(x).convert("RGB") if isinstance(x, (str, Path)) else x.convert("RGB")
+                for x in img
+            ]
+            pv, pos_embeds, spatial_shapes, l_vis_arange = self.onnx_engine._preprocess(
+                pil_list, max_patches=self.max_num_patches
+            )
+            return {
+                "pixel_values": pv,
+                "pos_embeds": pos_embeds,
+                "spatial_shapes": spatial_shapes,
+                "l_vis_arange": l_vis_arange,
+            }
         if getattr(self, "is_litert", False):
             from hayai_ocr.litert import preprocess_image_pil, compute_pos_embeds, compute_rope
 
@@ -823,6 +1104,13 @@ class HayaiOcr:
                 "pixel_attention_mask": inputs.get("pixel_attention_mask"),
                 "spatial_shapes": inputs.get("spatial_shapes"),
             }
+        if self.is_supernova:
+            if not isinstance(img, list):
+                img = [img]
+            try:
+                return self.processor(images=img, max_patches=self.max_num_patches, return_tensors="pt")
+            except TypeError:
+                return self.processor(images=img, return_tensors="pt")
         else:
             if not isinstance(img, list):
                 img = [img]

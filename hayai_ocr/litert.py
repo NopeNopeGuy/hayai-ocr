@@ -302,6 +302,11 @@ class LitertOcrEngine:
         :param num_threads: number of threads for LiteRT interpreters; defaults to system.
         """
         self.quant = normalize_litert_quant(quant)
+        logger.warning(
+            "The LiteRT backend runs the older Hayai OCR v2 model (fixed 256-patch layout) "
+            "and does NOT include v2.7 Supernova improvements. For v2.7 Supernova without PyTorch, "
+            "consider using backend='onnx'."
+        )
         self.hf_repo = hf_repo
         self.quant_dir = _resolve_litert_dir(quant=self.quant, hf_repo=hf_repo, local_dir=model_dir, revision=revision)
 

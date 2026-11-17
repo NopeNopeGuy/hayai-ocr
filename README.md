@@ -1,15 +1,14 @@
 # Hayai OCR (速いOCR)
 
-Fast optical character recognition for Japanese, Chinese, and Korean text, with the main focus being Japanese manga.
-Powered by the new **Hayai OCR v2.5-nova** model ([JustANormalTinkerer/hayai-ocr-v2.5-nova](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2.5-nova)), pairing a [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a high-performance transformer architecture.
-The previous v2 checkpoint ([JustANormalTinkerer/hayai-ocr-v2](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2)) is still available via `use_v2=True` / `--use-v2`.
+Fast optical character recognition for Japanese, Chinese, Korean, and English text, with the main focus being Japanese manga.
+Powered by **Hayai OCR v2.7 Supernova** ([JustANormalTinkerer/hayai-ocr-v2.7-supernova](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2.7-supernova)), pairing Google's [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex) vision encoder with a 12-layer causal GQA decoder, multi-depth stroke fusion (`StaticDepthFusion`), dual-order `VisualCausalFlow` (horizontal LTR + vertical RTL), 226-class IDS grounding, and single-pass adaptive patch routing (`max_patches="auto"`).
 
-Hayai OCR v2 is **MUCH faster** while also adding multi-language support for **Chinese** (Simplified and Traditional) and **Korean** alongside Japanese.
+Older checkpoints are still available as fallbacks (`use_v25=True` / `--use-v25` for v2.5-nova, `use_v2=True` / `--use-v2` for v2, and `use_v1=True` / `--use-v1` for legacy v1), though **v2.7 Supernova** is strongly recommended for both accuracy and speed.
 
 > [!NOTE]
-> Hayai OCR v2 is NOT a based on manga-ocr in any way. v1 is heavily inspired by manga-ocr, but is however not finetuned from it.
+> Hayai OCR v2+ is NOT based on manga-ocr in any way. v1 is heavily inspired by manga-ocr, but is not finetuned from it.
 
-Hayai OCR can be used as a general purpose printed Asian language OCR, but its main goal is to provide high quality text recognition, robust against various scenarios specific to manga:
+Hayai OCR can be used as a general purpose printed Asian + English language OCR, and its main goal is high-quality crop-level text recognition, robust against scenarios specific to manga:
 - both vertical and horizontal text
 - text with furigana
 - text overlaid on images
@@ -18,6 +17,8 @@ Hayai OCR can be used as a general purpose printed Asian language OCR, but its m
 - SFX
 
 Unlike many OCR models, Hayai OCR supports recognizing multi-line text in a single forward pass, so that text bubbles found in manga can be processed at once, without splitting them into lines.
+
+> **Scope:** Hayai is designed for crop-level recognition. For full-page OCR, pair it with a text/bubble detector.
 
 See also:
 - [Poricom](https://github.com/bluaxees/Poricom), a GUI reader
@@ -58,10 +59,18 @@ img = PIL.Image.open('/path/to/img')
 text = mocr(img)
 ```
 
-Batch processing is also supported:
+Batch processing (with automatic single-pass adaptive patch routing across `{128, 192, 256, 384}`):
 
 ```python
 texts = mocr(['/path/to/img1.png', '/path/to/img2.png'])
+```
+
+You can also override the patch budget (`"auto"` by default on v2.7 Supernova, or fixed integers like `128`, `256`, `384`):
+
+```python
+mocr = HayaiOcr(max_patches=256)
+# or per call:
+text = mocr('/path/to/img', max_patches=128)
 ```
 
 ### Quantization (int4 / int8)
@@ -79,9 +88,31 @@ mocr = HayaiOcr(quantize="int4")
 mocr = HayaiOcr(quantize="int8")
 ```
 
-### LiteRT backend (no PyTorch required)
+### ONNX Runtime backend (v2.7 Supernova, no PyTorch required)
 
-Alternative backend that runs exported TFLite graphs (encoder + prefill/decode with KV-cache) via `ai_edge_litert` — ideal for CPU / edge without PyTorch. Artefacts: [JustANormalTinkerer/hayai-ocr-v2-tflite](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2-tflite) (`litert_exports/{none,wi4,wi8_afp32,dynamic_wi4,dynamic_wi8}`).
+Runs exported **v2.7 Supernova** ONNX graphs (prefill + decode with KV-cache and adaptive `max_patches="auto"` bucketing) via `onnxruntime`. Artefacts: [JustANormalTinkerer/hayai-ocr-v2.7-supernova-onnx](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2.7-supernova-onnx) (`fp32`, `fp16`, `int8`, `int4`).
+
+```bash
+pip install hayai-ocr[onnx] or pip install hayai-ocr[onnx-gpu] # installs onnxruntime, tokenizers, huggingface_hub
+```
+
+```python
+from hayai_ocr import HayaiOcr
+
+mocr = HayaiOcr(backend="onnx")  # default precision: int8
+mocr = HayaiOcr(backend="onnx", onnx_precision="int4")
+mocr = HayaiOcr(backend="onnx", onnx_precision="fp16")
+# local exports: HayaiOcr(backend="onnx", onnx_model_path="/path/to/hayai_onnx")
+```
+
+CLI: `hayai_ocr --backend onnx --onnx-precision int8`
+
+### LiteRT backend (legacy v2 model only)
+
+> [!WARNING]
+> The LiteRT backend currently runs the **older Hayai OCR v2 model** with a fixed 256-patch layout and does **not** include v2.7 Supernova improvements. For running **v2.7 Supernova** without PyTorch, use `backend="onnx"` above.
+
+Alternative backend that runs exported v2 TFLite graphs (encoder + prefill/decode with KV-cache) via `ai_edge_litert`. Artefacts: [JustANormalTinkerer/hayai-ocr-v2-tflite](https://huggingface.co/JustANormalTinkerer/hayai-ocr-v2-tflite) (`litert_exports/{none,wi4,wi8_afp32,dynamic_wi4,dynamic_wi8}`).
 
 ```bash
 pip install hayai-ocr[litert]  # installs ai_edge_litert, tokenizers, huggingface_hub
@@ -90,9 +121,9 @@ pip install hayai-ocr[litert]  # installs ai_edge_litert, tokenizers, huggingfac
 ```python
 from hayai_ocr import HayaiOcr
 
-mocr = HayaiOcr(backend="litert")  # default: wi4 (int4)
-mocr = HayaiOcr(backend="litert", litert_quant="dynamic_wi4")  # dynamic int4
-mocr = HayaiOcr(backend="litert", litert_quant="float")  # fp32
+mocr = HayaiOcr(backend="litert")  # default: wi4 (int4), runs v2 model
+mocr = HayaiOcr(backend="litert", litert_quant="dynamic_wi4")
+mocr = HayaiOcr(backend="litert", litert_quant="float")
 # local exports: HayaiOcr(backend="litert", litert_model_path="/path/to/litert_exports/dynamic_wi4")
 ```
 
@@ -100,19 +131,19 @@ Quants: `none`/`float`, `wi4`/`int4`, `wi8_afp32`/`int8`, `dynamic_wi4`/`dynamic
 
 CLI: `hayai_ocr --backend litert --litert-quant dynamic_wi4`
 
-### Previous v2 / Legacy v1 Model Fallback
+### Older Model Fallbacks (v2.5-nova / v2 / v1)
 
-If you need to use the previous Hayai OCR v2 model (`JustANormalTinkerer/hayai-ocr-v2`) instead of the default v2.5-nova checkpoint, you can set `use_v2=True`:
+> [!WARNING]
+> `use_v25`, `use_v2`, and `use_v1` load older checkpoints with lower accuracy (and in the case of v1, Japanese-only support and much slower inference). Use them only if you specifically require backwards compatibility.
 
 ```python
-# Use the previous v2 model
+# Previous v2.5-nova model (JustANormalTinkerer/hayai-ocr-v2.5-nova)
+mocr = HayaiOcr(use_v25=True)
+
+# Older v2 model (JustANormalTinkerer/hayai-ocr-v2)
 mocr = HayaiOcr(use_v2=True)
-```
 
-If you need to use the legacy Hayai OCR v1 model (`JustANormalTinkerer/hayai-ocr`), you can set `use_v1=True` or supply the v1 model repository:
-
-```python
-# Use the legacy v1 model
+# Legacy v1 model (JustANormalTinkerer/hayai-ocr)
 mocr = HayaiOcr(use_v1=True)
 ```
 
@@ -140,25 +171,24 @@ capture region with ShareX -> write image to clipboard -> Hayai OCR -> write tex
     ```commandline
     hayai_ocr
     ```
-- To run with quantization in CLI:
+- To run with ONNX Runtime (v2.7 Supernova):
+    ```commandline
+    hayai_ocr --backend onnx --onnx-precision int8
+    ```
+- To run with torch quantization in CLI:
     ```commandline
     hayai_ocr --quantize int4
     ```
-- To run with the previous v2 model:
+- To run with an older model fallback:
     ```commandline
+    hayai_ocr --use-v25
     hayai_ocr --use-v2
-    ```
-- To run with the legacy v1 model:
-    ```commandline
     hayai_ocr --use-v1
     ```
 - To read images from ShareX's screenshot folder, run in command line:
     ```commandline
     hayai_ocr "/path/to/sharex/screenshot/folder"
     ```
-Note that when running in the clipboard scanning mode, any image that you copy to clipboard will be processed by OCR and replaced
-by recognized text. If you want to be able to copy and paste images as usual, you should use the folder scanning mode instead
-and define a separate task in ShareX just for OCR, which saves screenshots to some folder without copying them to clipboard.
 
 When running for the first time, downloading the model might take a few minutes.
 The OCR is ready to use after `OCR ready` message appears in the logs.
@@ -172,76 +202,42 @@ If `hayai_ocr` doesn't work, you might also try replacing it with `python -m hay
 
 ## Usage tips
 
-- OCR supports multi-line text, but the longer the text, the more likely some errors are to occur.
-  If the recognition failed for some part of a longer text, you might try to run it on a smaller portion of the image.
-- The model was trained to handle manga, visual novels, anime graphics, and handwritten texts across Japanese, Chinese, and Korean.
-- The model always attempts to recognize some text on the image, even if there is none.
-  Because it uses a transformer decoder (and therefore has some language model understanding),
-  it might even "dream up" realistically looking sentences! This shouldn't be a problem for most use cases.
+- Keep `repetition_penalty=1.0` (the default): CJK text relies heavily on legitimate character repetition (e.g., onomatopoeia like ドキドキ or repeated digits). Penalties above 1.0 degrade accuracy.
+- Use `max_patches="auto"` (the default for v2.7 Supernova): automatically assigns each crop in a single pass to `{128, 192, 256, 384}` patches under `max_scale=4.0`.
+- Pass cropped bubbles/text boxes rather than full comic pages.
+- Set `HAYAI_DISABLE_COMPILE=1` if you need to opt out of `torch.compile` on custom kernels.
 
-# Examples
+## Benchmarks (v2.7 Supernova)
 
-Here are some examples showing the capability of the model with the new **Hayai OCR v2**: 
+### JMangaBench_Read v1.3.3 (7,789 crops)
 
-Note: All the example images are picked randomly from Youtube videos and raw manga sites. The model has never seen these images before.
-Some images (especially the youtube ones) weren't even in the scope of this project, but the model is just that good at it.  
-
-| image | hayai-ocr-v1 | hayai-ocr-v2 | hayai-ocr-v2.1 | PaddleOCR-VL For Manga |
-|---|---|---|---|---|
-| ![](assets/examples/01.png) | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけたイメージを | 知らない世界で見つけた\n イメージを |
-| ![](assets/examples/02.png) | カナデトモスソラ（Ｋａｎａｄｅｔｏｍｏｓｕｓｏｒａ） | カナデトモスツラ(Kanadetomosusora) | カナデトモスソラ(Kanadetomosusura) | カナデトモスリラ(Kanadetomosusora) |
-| ![](assets/examples/03.png) | 建設会社社員行方 | 建設会社社員行才 | 建設会社社員行方 | 建設会社社員行 |
-| ![](assets/examples/04.png) | だとしてもこのレベルがウロつくなんて．．．おそらく２級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて...おそらく2級の呪い | だとしてもこのレベルがウロつくなんて･･･おそらく２級の呪い |
-| ![](assets/examples/05.png) | パチパチパチパチ | パチパチパチパチパチパチ | パチパチパチパチ | アデアデデアデデアデ |
-| ![](assets/examples/06.png) | バビュン | バビュン | バビュン | 川ビュン |
-| ![](assets/examples/07.png) | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか | 僕の過去とか未来とか |
-| ![](assets/examples/08.png) | くらべられっ子 | らぺろれっ子 | くらべられっ子 | くらべられっ子 |
-| ![](assets/examples/09.png) | そうだクラス分けがあるんだった！！ | そうだクラス分けがあるんだった!! | そうだクラス分けがあるんだ!! | そうだクラス分けがあるんだった！！ |
-| ![](assets/examples/10.png) | 脇役よ、主役を超えよ！ | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! | 脇役よ、主役を超えよ! |
-| ![](assets/examples/11.png) | Ｅｈ～Ｉｄｏｎ＇ｔｒｅａｌｌｙｗａｎｔｔｏ～ | Eh~I don't really want to~ | Eh~ I don't really want to~ | Ｅｈ～Ｉ don't really want to～ |
-| ![](assets/examples/12.png) | 「Ｓｏｒｒｙｆｏｒｔｈｅｗａｉｔ～！Ｄｉｄｙｏｕｗａｉｔｌｏｎｇ？」 | 「Sorry for thewait~!DidyouwaitLong?」 | 「Sorry for the wait~! Did you wait Long?」 | 「Sorry for the wait~!Did you wait long?」 |
-| ![](assets/examples/13.png) | ＹａｍａｔｅＡｒｅａＮｅｗｒｅｓｉｄｅｎｔｉａｌｄｉｓｔｒｉｃｔｆｏｒｆｏｒｅｉｇｎｅｒｓ | Yamate AreaNew residental district forforeignert | Yamate Area New residential district for foreigners | Yamate Area New residential district for foreigners |
-
-
-## Benchmarks:
-
-
-#### [JMangaBench_Mixed](https://github.com/muscgab/JMangaBench_Mixed/)
-
-| Model | CER ↓ (Lower is Better)| Exact match ↑ (Higher is better) | Text-only CER ↓ | Text-only exact match ↑ |
+| Model | Composite ↑ | 1-NED (All) ↑ | EM % ↑ | CER % ↓ |
 |---|---:|---:|---:|---:|
-| MangaOCR | 4.683% | 73.524% | 2.700% | 82.867% |
-| HayaiOCR | 6.738% | 71.272% | 4.967% | 80.949% |
-| HayaiOCR-v2 | 4.534% | 73.645% | 2.872% | 82.227% |
-| **HayaiOCR-v2.1** | **3.225%** | **79.671%** | **1.896%** | **87.461%** |
-| **HayaiOCR-v2.1 (LiteRT dynamic int4)** | 3.959% | 75.533% | 2.560% | 83.414% |
-| BaberuOCR | 4.589% | 72.246% | 2.603% | 81.649% |
-| PaddleOCR-VL-0.9B-For-Manga | 2.910% | 78.911% | 1.866% | 84.662% |
+| **Hayai OCR v2.7 Supernova (auto)** | **98.87** | **99.23** | **95.70** | **0.96** |
+| Hayai OCR v2.7 Supernova (p256) | 98.72 | 99.11 | 95.17 | 1.79 |
+| Hayai OCR v2.7 Supernova (p384) | 98.69 | 99.10 | 95.03 | 1.00 |
+| Hayai OCR v2.7 Supernova (p128) | 98.44 | 98.77 | 92.99 | 3.17 |
+| manga-ocr-base-CPT-flex (#1 ranked) | 97.48 | — | 91.71 | 1.50 |
+| Hayai v2.5 Nova (p384) | 96.63 | — | 88.20 | 2.38 |
+| Hayai v2.5 Nova (p256) | 96.60 | — | 87.19 | 2.95 |
 
-> [!NOTE]
-> The previous version of this readme contained a note stating that the benchmark was bad, however, upon further examination, I believe it holds up.
+### JMangaBench_Hard v1.0 (3,015 SFX, stylized & handwritten crops)
 
-#### [My finetuning Dataset Train Split: Chinese + Japanese/Korean Onomatopoeia + Some English](JustANormalTinkerer/hayai-finetuning-dataset)
+| Model | Score ↑ | CER % ↓ | EM % ↑ |
+|---|---:|---:|---:|
+| **Hayai OCR v2.7 Supernova (auto)** | **96.35** | **4.02** | **89.35** |
+| Hayai OCR v2.7 Supernova (p256) | 96.10 | 4.77 | 88.72 |
+| manga-ocr-ar-experimental (#1 ranked) | 95.98 | 4.75 | 88.52 |
+| Hayai OCR v2.7 Supernova (p128) | 95.94 | 5.03 | 88.33 |
+| PaddleOCR-VL-1.6 manga LoRA v6 | 91.87 | 9.21 | 78.57 |
+| Hayai v2.5 Nova (p256) | 88.87 | 11.61 | 72.34 |
 
-| Model Name | Mean CER | Throughput on L4 GPU (FPS) |
-| :--- | ---: | ---: |
-| Hayai OCR v2 | 8.52% | 37.25 |
-| PaddleOCR-VL-For-Manga | 24.66% | 3.60 |
+### Throughput (Tesla T4, fp16 + CUDA Graphs)
 
-
-#### Private Pretraining Dataset Train Split: CJK
-
-| Model Name | Mean CER | Throughput on L4 GPU (FPS) |
-| :--- | ---: | ---: |
-| Hayai OCR v2 | 10.56% | 31.95 |
-| Hayai OCR v2.1 | 12.94% | 54.22* |
-| PaddleOCR-VL-For-Manga | 38.69% | 2.22 |
-
-*No idea how the throughput increased so much
-
-## Goals
-
-While PaddleOCR-VL is also very accurate, it is 9x the size of this model and it struggles with SFX. The goal of this model is not to be State of the Art, but rather be usuable and fast at scale.
+- `max_patches="auto"` (JMangaBench_Read, bs=64): **103.39 images/s**, **2.27 GB** peak VRAM
+- `max_patches="auto"` (JMangaBench_Hard, bs=64): **137 images/s**
+- `max_patches=256` (bs=512): **147.28 images/s** (6.59 ms/crop)
+- `max_patches=128` (bs=64): **208.07 images/s** (4.75 ms/crop), **0.92 GB** peak VRAM
 
 # Acknowledgments
 

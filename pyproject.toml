@@ -3,7 +3,7 @@ name = "hayai-ocr"
 authors = [
     {name = "NopeNopeGuy"},
 ]
-description = "Fast OCR for Japanese manga (fork of manga-ocr)"
+description = "Fast OCR for Japanese manga and CJK + English text (fork of manga-ocr)"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
@@ -39,6 +39,20 @@ dependencies = [
 dev = [
     "pytest",
     "ruff",
+]
+onnx = [
+    "onnxruntime",
+    "tokenizers",
+    "huggingface_hub",
+    "numpy",
+    "Pillow>=10.0.0",
+]
+onnx-gpu = [
+    "onnxruntime-gpu",
+    "tokenizers",
+    "huggingface_hub",
+    "numpy",
+    "Pillow>=10.0.0",
 ]
 litert = [
     "ai-edge-litert",

@@ -52,12 +52,18 @@ def run(
     quantize=None,
     use_v1=False,
     use_v2=False,
+    use_v25=False,
     backend="torch",
     litert_quant=None,
     litert_model_path=None,
     litert_repo=None,
     litert_threads=None,
+    onnx_precision=None,
+    onnx_model_path=None,
+    onnx_repo=None,
+    onnx_threads=None,
     max_num_patches=None,
+    max_patches=None,
     delay_secs=0.1,
     verbose=False,
 ):
@@ -68,22 +74,28 @@ def run(
     :param read_from: Specifies where to read input images from. Can be either "clipboard", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", or a path to a text file.
     :param pretrained_model_name_or_path: Path to a trained model, either local or from Transformers' model hub.
-        Defaults to JustANormalTinkerer/hayai-ocr-v2.5-nova.
+        Defaults to JustANormalTinkerer/hayai-ocr-v2.7-supernova.
     :param force_cpu: If True, OCR will use CPU even if GPU is available.
-    :param quantize: Optional quantization type: "int4" or "int8".
+    :param quantize: Optional torch quantization type: "int4" or "int8".
     :param use_v1: If True, uses the legacy Hayai OCR v1 model (JustANormalTinkerer/hayai-ocr).
-    :param use_v2: If True, uses the previous Hayai OCR v2 model (JustANormalTinkerer/hayai-ocr-v2)
-        instead of the default v2.5-nova checkpoint.
-    :param backend: Inference backend: "torch" (default) or "litert" / "tflite".
+    :param use_v2: If True, uses the older Hayai OCR v2 model (JustANormalTinkerer/hayai-ocr-v2).
+    :param use_v25: If True, uses the previous Hayai OCR v2.5-nova model (JustANormalTinkerer/hayai-ocr-v2.5-nova)
+        instead of the default v2.7-supernova checkpoint.
+    :param backend: Inference backend: "torch" (default), "onnx" (v2.7 Supernova without PyTorch),
+        or "litert" / "tflite" (older v2 model).
     :param litert_quant: LiteRT quantization preset: "none", "wi4", "wi8_afp32", "dynamic_wi4", "dynamic_wi8"
         (aliases: "int4", "int8", "float" etc). Default "wi4".
     :param litert_model_path: Local path to LiteRT quant folder (or litert_exports root).
     :param litert_repo: HF repo id for LiteRT artefacts (default JustANormalTinkerer/hayai-ocr-v2-tflite).
     :param litert_threads: Num threads for LiteRT interpreters.
-    :param max_num_patches: NaFlex patch budget for the torch v2 backend (default 512 for v2.5-nova,
-        256 otherwise).
-        Larger values keep more detail at higher compute cost; smaller values are faster.
-        Ignored for v1; unsupported for litert. Also settable via HAYAI_MAX_NUM_PATCHES.
+    :param onnx_precision: ONNX precision preset: "fp32", "fp16", "int8" (default), or "int4".
+    :param onnx_model_path: Local path to ONNX export folder.
+    :param onnx_repo: HF repo id for ONNX artefacts (default JustANormalTinkerer/hayai-ocr-v2.7-supernova-onnx).
+    :param onnx_threads: Num intra-op threads for ONNX Runtime CPU sessions.
+    :param max_num_patches: Alias for ``max_patches``.
+    :param max_patches: NaFlex patch budget (default "auto" for v2.7 Supernova / ONNX,
+        512 for v2.5-nova, 256 for v2). Ignored for v1; fixed at 256 for litert.
+        Also settable via HAYAI_MAX_PATCHES / HAYAI_MAX_NUM_PATCHES.
     :param verbose: If True, unhides all warnings.
     :param delay_secs: How often to check for new images, in seconds.
     """
@@ -94,20 +106,24 @@ def run(
         quantize=quantize,
         use_v1=use_v1,
         use_v2=use_v2,
+        use_v25=use_v25,
         backend=backend,
         litert_quant=litert_quant,
         litert_model_path=litert_model_path,
         litert_repo=litert_repo,
         litert_threads=litert_threads,
+        onnx_precision=onnx_precision,
+        onnx_model_path=onnx_model_path,
+        onnx_repo=onnx_repo,
+        onnx_threads=onnx_threads,
         max_num_patches=max_num_patches,
+        max_patches=max_patches,
     )
 
     if sys.platform not in ("darwin", "win32") and write_to == "clipboard":
-        # Check if the system is using Wayland
         import os
 
         if os.environ.get("WAYLAND_DISPLAY"):
-            # Check if the wl-clipboard package is installed
             if os.system("which wl-copy > /dev/null") == 0:
                 pyperclip.set_clipboard("wl-clipboard")
             else:
@@ -130,10 +146,8 @@ def run(
                 img = ImageGrab.grabclipboard()
             except OSError as error:
                 if not verbose and "cannot identify image file" in str(error):
-                    # Pillow error when clipboard hasn't changed since last grab (Linux)
                     pass
                 elif not verbose and "target image/png not available" in str(error):
-                    # Pillow error when clipboard contains text (Linux, X11)
                     pass
                 else:
                     logger.warning("Error while reading from clipboard ({})".format(error))
